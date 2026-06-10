@@ -189,17 +189,7 @@ const assignFaculty = async (req, res, next) => {
 // ── User Management ──────────────────────────────────────────
 const getUsers = async (req, res, next) => {
   try {
-    const { role, isActive, search, sessionId, departmentId } = req.query;
-
-    // If filtering by session: get studentIds enrolled in any course of that session
-    let sessionStudentIds = null;
-    if (sessionId) {
-      const enrolments = await prisma.enrolment.findMany({
-        where: { course: { sessionId } },
-        select: { studentId: true },
-      });
-      sessionStudentIds = [...new Set(enrolments.map(e => e.studentId))];
-    }
+    const { role, isActive, search, batchYear } = req.query;
 
     const users = await prisma.user.findMany({
       where: {
@@ -207,7 +197,11 @@ const getUsers = async (req, res, next) => {
         deletedAt: null,
         ...(role && { role }),
         ...(isActive !== undefined && { isActive: isActive === 'true' }),
-        ...(sessionStudentIds && { id: { in: sessionStudentIds } }),
+        // Filter students by batch year extracted from institutionalId prefix
+        // e.g. institutionalId "23549009001" starts with "23" = Batch 2023
+        ...(batchYear && {
+          institutionalId: { startsWith: batchYear.toString().slice(-2) },
+        }),
         ...(search && {
           OR: [
             { email: { contains: search, mode: 'insensitive' } },
@@ -432,12 +426,54 @@ const getAttainmentReport = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const bulkCreateUsers = async (req, res, next) => {
+  try {
+    const { users } = req.body; // array of { firstName, lastName, email, role, institutionalId }
+    if (!Array.isArray(users) || !users.length) {
+      return res.status(400).json({ status: 'error', error: 'No users provided' });
+    }
+    const bcrypt = require('bcrypt');
+    const results = { created: 0, skipped: 0, errors: [] };
+
+    for (const u of users) {
+      try {
+        if (!u.firstName || !u.lastName || !u.email || !u.role) {
+          results.errors.push({ row: u.email || '?', error: 'Missing required fields' });
+          continue;
+        }
+        // Default password = institutionalId if student, else random
+        const defaultPw = u.institutionalId || Math.random().toString(36).slice(-8);
+        const passwordHash = await bcrypt.hash(defaultPw, 10);
+        const existing = await prisma.user.findFirst({
+          where: { email: { equals: u.email.trim(), mode: 'insensitive' } },
+        });
+        if (existing) { results.skipped++; continue; }
+        await prisma.user.create({
+          data: {
+            institutionId: req.user.institutionId,
+            email: u.email.trim().toLowerCase(),
+            passwordHash,
+            role: u.role.toUpperCase(),
+            firstName: u.firstName.trim(),
+            lastName: u.lastName.trim(),
+            institutionalId: u.institutionalId?.trim() || null,
+          },
+        });
+        results.created++;
+      } catch(e) {
+        results.errors.push({ row: u.email || '?', error: e.message });
+      }
+    }
+    res.json({ status: 'success', data: results });
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   getDepartments, createDepartment, updateDepartment, deleteDepartment,
   getPrograms, createProgram, updateProgram, deleteProgram,
   getSessions, createSession, updateSession,
   getCourses, createCourse, updateCourse, deleteCourse, assignFaculty,
-  getUsers, createUser, updateUser,
+  getUsers, createUser, updateUser, bulkCreateUsers,
   getThresholds, upsertThresholds,
   getAttainmentReport,
   getProgramOutcomes, createProgramOutcome, updateProgramOutcome, deleteProgramOutcome,

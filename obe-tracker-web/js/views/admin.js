@@ -147,49 +147,67 @@ const AdminView={
 
   // ── Users ──────────────────────────────────────────────────
   async users(){
-    const [sessions,depts]=await Promise.all([Api.getSessions(),Api.getDepartments()]).catch(()=>[[],[]]);
     document.getElementById('view-root').innerHTML=`
-      <div class="page-hd"><div class="page-hd-left"><h1>Users</h1><div class="hd-sub">Search by role, batch or department to view users</div></div>
-        <div class="page-hd-actions"><button class="btn btn-primary" onclick="AdminView._addUser()">${ico('add_user')} Add User</button></div></div>
+      <div class="page-hd">
+        <div class="page-hd-left"><h1>Users</h1><div class="hd-sub">Search by role or batch year to view accounts</div></div>
+        <div class="page-hd-actions">
+          <button class="btn btn-secondary" onclick="AdminView._bulkUpload()">${ico('plus')} Bulk Upload</button>
+          <button class="btn btn-primary" onclick="AdminView._addUser()">${ico('add_user')} Add User</button>
+        </div>
+      </div>
       <div class="filter-bar">
-        <div class="search-wrap"><input id="uq" placeholder="Search name or email..." oninput="AdminView._filterU()"></div>
+        <div class="search-wrap"><input id="uq" placeholder="Search name, email or ID..." oninput="AdminView._filterU()"></div>
         <select id="uf-role" onchange="AdminView._loadU()">
-          <option value="">-- Select Role --</option>
+          <option value="">-- Role --</option>
           <option value="ADMIN">Admin</option>
           <option value="FACULTY">Faculty</option>
           <option value="STUDENT">Student</option>
         </select>
-        <select id="uf-sess" onchange="AdminView._loadU()">
-          <option value="">-- Select Batch --</option>
-          ${sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+        <select id="uf-batch" onchange="AdminView._loadU()">
+          <option value="">-- Batch Year --</option>
+          <option value="2020">Batch 2020</option>
+          <option value="2021">Batch 2021</option>
+          <option value="2022">Batch 2022</option>
+          <option value="2023">Batch 2023</option>
+          <option value="2024">Batch 2024</option>
+          <option value="2025">Batch 2025</option>
+          <option value="2026">Batch 2026</option>
         </select>
         <select id="uf-dept" onchange="AdminView._loadU()">
-          <option value="">-- Select Dept --</option>
-          ${depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('')}
+          <option value="">-- Department --</option>
         </select>
       </div>
       <div class="tbl-wrap"><table><thead><tr>
-        <th>Name</th><th>Email</th><th>Role</th><th>ID</th>
+        <th>Name</th><th>Email / ID</th><th>Role</th><th>Batch</th>
         <th style="text-align:center">Active</th><th>Last Login</th>
       </tr></thead>
-      <tbody id="utb"><tr><td colspan="6" class="td-load text-muted">Select a filter above to view users.</td></tr></tbody>
+      <tbody id="utb"><tr><td colspan="6" class="td-load text-muted">Select a role or batch year above to view users.</td></tr></tbody>
       </table></div>`;
   },
+
   async _loadU(){
     const role=document.getElementById('uf-role')?.value;
-    const sessId=document.getElementById('uf-sess')?.value;
+    const batchYear=document.getElementById('uf-batch')?.value;
     const deptId=document.getElementById('uf-dept')?.value;
-    // Require at least one filter to be selected
-    if(!role && !sessId && !deptId){
-      document.getElementById('utb').innerHTML='<tr><td colspan="6" class="td-load text-muted">Select a filter above to view users.</td></tr>';
+
+    // Populate dept dropdown if empty
+    const deptSel=document.getElementById('uf-dept');
+    if(deptSel && deptSel.options.length<=1){
+      try{const depts=await Api.getDepartments();depts.forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;deptSel.appendChild(o);});}catch(_){}
+    }
+
+    if(!role && !batchYear && !deptId){
+      document.getElementById('utb').innerHTML='<tr><td colspan="6" class="td-load text-muted">Select a role, batch or department to view users.</td></tr>';
       return;
     }
     document.getElementById('utb').innerHTML=tdLoad(6);
     try{
       const params={};
       if(role) params.role=role;
-      if(sessId) params.sessionId=sessId;
+      if(batchYear) params.batchYear=batchYear;
       const l=await Api.getUsers(params);
+      // Client-side dept filter: filter by institutionalId prefix or show all
+      // (dept filtering is approximate for now — backend doesn't have dept on user directly)
       this._ul=l;
       if(!l.length){
         document.getElementById('utb').innerHTML='<tr><td colspan="6" class="td-load text-muted">No users found for the selected filters.</td></tr>';
@@ -198,40 +216,27 @@ const AdminView={
       }
     }catch(e){document.getElementById('utb').innerHTML=tdEmpty(e.message,6)}
   },
+
   _filterU(){const q=document.getElementById('uq').value.toLowerCase();this._renderU((this._ul||[]).filter(u=>`${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(q)))},
   _renderU(list){
-    document.getElementById('utb').innerHTML=list.length?list.map(u=>`<tr>
-      <td class="fw7">${u.firstName} ${u.lastName}</td>
-      <td class="text-muted text-sm">${u.email}</td>
-      <td><span class="role-pill rp-${u.role}">${u.role}</span></td>
-      <td class="text-mono text-sm text-muted">${u.institutionalId||'-'}</td>
-      <td style="text-align:center">
-        <label class="tog"><input type="checkbox" ${u.isActive?'checked':''} onchange="AdminView._togUser('${u.id}',this)"><span class="tog-track"></span></label>
-      </td>
-      <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
-    </tr>`).join(''):tdEmpty('No users found',6)},
-  async _togUser(id,cb){const v=cb.checked;try{await Api.updateUser(id,{isActive:v});toast(`User ${v?'activated':'deactivated'}`)}catch(e){cb.checked=!v;toast(e.message,'err')}},
-  _addUser(){showModal('Create User',`<div class="form-row fr2 mb3"><div class="fg"><label>First Name</label><input id="mu-fn" placeholder="First name"></div><div class="fg"><label>Last Name</label><input id="mu-ln" placeholder="Last name"></div></div>
-    <div class="fg mb3"><label>Email</label><input id="mu-em" type="email" placeholder="name@bup.edu.bd"></div>
-    <div class="form-row fr2"><div class="fg"><label>Role</label><select id="mu-role"><option value="STUDENT">Student</option><option value="FACULTY">Faculty</option><option value="ADMIN">Admin</option></select></div>
-    <div class="fg"><label>Institutional ID <span class="text-muted">(optional)</span></label><input id="mu-id" placeholder="e.g. 2022-ICE-001"></div></div>`,
-    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveUser()">${ico('save')} Create</button>`)},
-  async _saveUser(){const d={firstName:document.getElementById('mu-fn').value.trim(),lastName:document.getElementById('mu-ln').value.trim(),email:document.getElementById('mu-em').value.trim(),role:document.getElementById('mu-role').value,institutionalId:document.getElementById('mu-id').value.trim()||null};
-    if(!d.firstName||!d.lastName||!d.email)return toast('Name and email required','err');
-    try{const r=await Api.createUser(d);toast(`Created! Temp password: ${r.tempPassword}`,'ok');closeModal();this._loadU()}catch(e){toast(e.message,'err')}},
-
-  // ── Outcomes ───────────────────────────────────────────────
-  async outcomes(){
-    const progs=await Api.getPrograms();
-    document.getElementById('view-root').innerHTML=`
-      <div class="page-hd"><div class="page-hd-left"><h1>Program Outcomes</h1><div class="hd-sub">PO1-PO12 per program</div></div>
-        <div class="page-hd-actions">
-          <select id="po-prog" style="min-width:260px" onchange="AdminView._loadPOs()">${progs.map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('')}</select>
-          <button class="btn btn-primary" onclick="AdminView._addPO()">${ico('plus')} Add PO</button>
-        </div>
-      </div>
-      <div id="po-area">${loading()}</div>`;
-    if(progs.length)this._loadPOs();
+    const getBatch = (u) => {
+      if(u.role !== 'STUDENT' || !u.institutionalId) return '--';
+      const yr = u.institutionalId.substring(0,2);
+      return '20'+yr;
+    };
+    document.getElementById('utb').innerHTML = list.length ? list.map(u => {
+      const batch = getBatch(u);
+      return `<tr>
+        <td class="fw7">${u.firstName} ${u.lastName}</td>
+        <td class="text-muted text-sm">${u.role==='STUDENT'?(u.institutionalId||u.email):u.email}</td>
+        <td><span class="role-pill rp-${u.role}">${u.role}</span></td>
+        <td><span class="badge ${u.role==='STUDENT'?'bg-blue':'bg-gray'}">${u.role==='STUDENT'?'Batch '+batch:'--'}</span></td>
+        <td style="text-align:center">
+          <label class="tog"><input type="checkbox" ${u.isActive?'checked':''} onchange="AdminView._togUser('${u.id}',this)"><span class="tog-track"></span></label>
+        </td>
+        <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
+      </tr>`;
+    }).join('') : tdEmpty('No users found', 6);
   },
   async _loadPOs(){
     const pid=document.getElementById('po-prog')?.value;if(!pid)return;
@@ -267,6 +272,40 @@ const AdminView={
     try{await Api.deleteProgramOutcome(id);toast('Deleted');this._loadPOs()}catch(e){toast(e.message,'err')}},
 
   // ── Thresholds ─────────────────────────────────────────────
+  async _togUser(id,cb){const v=cb.checked;try{await Api.updateUser(id,{isActive:v});toast('User '+(v?'activated':'deactivated'))}catch(e){cb.checked=!v;toast(e.message,'err')}},
+  _bulkUpload(){showModal('Bulk Upload Users',`<div class="alert alert-info mb3"><span class="alert-icon">i</span>Upload CSV or Excel. Columns: <strong>firstName, lastName, email, role, institutionalId</strong><br>Role: STUDENT / FACULTY / ADMIN. Student password defaults to institutionalId.</div><div class="fg mb3"><label>Download Template</label><button class="btn btn-secondary btn-sm" onclick="AdminView._dlTemplate()">${ico('dl',13)} CSV Template</button></div><div class="fg"><label>Upload File (CSV or Excel)</label><input type="file" id="bulk-file" accept=".csv,.xlsx,.xls" style="padding:8px"></div><div id="bulk-preview" class="mt3"></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-secondary" onclick="AdminView._parseFile()">${ico('edit')} Parse File</button><button class="btn btn-primary" onclick="AdminView._confirmBulk()">${ico('save')} Confirm Upload</button>`);},
+  _dlTemplate(){const csv='firstName,lastName,email,role,institutionalId\nJohn,Doe,john@bup.edu.bd,STUDENT,23549009999\nJane,Smith,jane@bup.edu.bd,FACULTY,';const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='users_template.csv';a.click();},
+  async _parseFile(){
+    const file=document.getElementById('bulk-file')?.files[0];if(!file)return toast('Select a file','err');
+    const preview=document.getElementById('bulk-preview');preview.innerHTML='<div class="loading-box" style="padding:10px 0"><div class="spin"></div> Reading...</div>';
+    try{
+      let users=[];const mapRow=r=>({firstName:String(r.firstName||r['First Name']||r.firstname||'').trim(),lastName:String(r.lastName||r['Last Name']||r.lastname||'').trim(),email:String(r.email||r.Email||'').trim(),role:String(r.role||r.Role||'STUDENT').toUpperCase().trim(),institutionalId:String(r.institutionalId||r['Institutional ID']||r.institutionalid||'').trim()});
+      if(file.name.endsWith('.csv')){const text=await file.text();const ls=text.trim().split('\n');const headers=ls[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());users=ls.slice(1).filter(l=>l.trim()).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return mapRow({firstName:obj.firstname||obj['first name'],lastName:obj.lastname||obj['last name'],email:obj.email,role:obj.role,institutionalId:obj.institutionalid||obj['institutional id']});});}
+      else{const ab=await file.arrayBuffer();const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs');const wb=XLSX.read(ab);users=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}).map(mapRow);}
+      if(!users.length){preview.innerHTML='<div class="alert alert-warn">No data found.</div>';return;}
+      preview.innerHTML='<div class="sec-title mb2">Preview - '+users.length+' users</div><div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:7px 10px">Name</th><th style="padding:7px 10px">Email / ID</th><th style="padding:7px 10px">Role</th><th style="padding:7px 10px">Batch</th></tr></thead><tbody>'+users.slice(0,50).map((u,i)=>'<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border)">'+u.firstName+' '+u.lastName+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace;font-size:11px">'+(u.role==='STUDENT'?(u.institutionalId||u.email):u.email)+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)"><span class="role-pill rp-'+(u.role||'STUDENT')+'">'+(u.role||'STUDENT')+'</span></td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.role==='STUDENT'&&u.institutionalId?'Batch 20'+u.institutionalId.substring(0,2):'--')+'</td></tr>').join('')+(users.length>50?'<tr><td colspan="4" style="padding:8px;text-align:center;color:var(--text3)">...and '+(users.length-50)+' more</td></tr>':'')+'</tbody></table></div>';
+      window._bulkUsers=users;toast(users.length+' users parsed. Click Confirm Upload.','ok');
+    }catch(e){preview.innerHTML='<div class="alert alert-error"><span class="alert-icon">!</span>'+e.message+'</div>';}
+  },
+  async _confirmBulk(){const users=window._bulkUsers;if(!users||!users.length)return toast('Parse a file first','err');
+    try{const res=await Api.bulkCreateUsers(users);toast('Created: '+res.created+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
+  _addUser(){showModal('Create User',`<div class="form-row fr2 mb3"><div class="fg"><label>First Name</label><input id="mu-fn" placeholder="First name"></div><div class="fg"><label>Last Name</label><input id="mu-ln" placeholder="Last name"></div></div><div class="fg mb3"><label>Email</label><input id="mu-em" type="email" placeholder="name@bup.edu.bd"></div><div class="form-row fr2"><div class="fg"><label>Role</label><select id="mu-role"><option value="STUDENT">Student</option><option value="FACULTY">Faculty</option><option value="ADMIN">Admin</option></select></div><div class="fg"><label>Institutional ID <span class="text-muted">(optional)</span></label><input id="mu-id" placeholder="e.g. 23549009001"></div></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveUser()">${ico('save')} Create</button>`)},
+  async _saveUser(){const d={firstName:document.getElementById('mu-fn').value.trim(),lastName:document.getElementById('mu-ln').value.trim(),email:document.getElementById('mu-em').value.trim(),role:document.getElementById('mu-role').value,institutionalId:document.getElementById('mu-id').value.trim()||null};if(!d.firstName||!d.lastName||!d.email)return toast('Name and email required','err');try{const r=await Api.createUser(d);toast('Created! Temp password: '+r.tempPassword,'ok');closeModal();this._loadU()}catch(e){toast(e.message,'err')}},
+
+  async outcomes(){
+    const progs=await Api.getPrograms();
+    document.getElementById('view-root').innerHTML=`
+      <div class="page-hd">
+        <div class="page-hd-left"><h1>Program Outcomes</h1><div class="hd-sub">PO1-PO12 per program</div></div>
+        <div class="page-hd-actions">
+          <select id="po-prog" style="min-width:260px" onchange="AdminView._loadPOs()">${progs.map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('')}</select>
+          <button class="btn btn-primary" onclick="AdminView._addPO()">${ico('plus')} Add PO</button>
+        </div>
+      </div>
+      <div id="po-area">${loading()}</div>`;
+    if(progs.length) this._loadPOs();
+  },
+
   async attainmentReport(){
     document.getElementById('view-root').innerHTML=`<div class="page-hd"><div class="page-hd-left"><h1>Attainment Report</h1><div class="hd-sub">CO/PO attainment by batch and department</div></div></div>${loading()}`;
     try{

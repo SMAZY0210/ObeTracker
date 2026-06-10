@@ -14,11 +14,20 @@ const login = async (req, res, next) => {
 
     // Allow login by email (case-insensitive) OR institutionalId (student roll number)
     const emailInput = email.trim();
-    let user = await prisma.user.findFirst({
-      where: { email: { equals: emailInput, mode: 'insensitive' } },
-    });
-    if (!user) {
-      user = await prisma.user.findFirst({ where: { institutionalId: emailInput } });
+    let user;
+    try {
+      user = await prisma.user.findFirst({
+        where: { email: { equals: emailInput, mode: 'insensitive' } },
+      });
+      if (!user) {
+        user = await prisma.user.findFirst({ where: { institutionalId: emailInput } });
+      }
+    } catch (dbErr) {
+      // Database not set up yet or table missing
+      return res.status(503).json({
+        status: 'error',
+        error: 'Database not ready. Please run: npx prisma migrate dev && npm run db:seed',
+      });
     }
     // Always compare to prevent timing attacks
     const dummyHash = '$2b$10$invalidhashfortimingnnnnnnnnnnnnnnnnnnnnnnnnnnnnn';

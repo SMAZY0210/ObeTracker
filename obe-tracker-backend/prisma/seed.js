@@ -57,26 +57,26 @@ async function main() {
   console.log('✓ Faculty: AZ@bup.edu.bd / 1234   RAI@bup.edu.bd / 1234');
 
   // ── Department & Program ──────────────────────────────────────
-  const deptICE = await prisma.department.upsert({
-    where: { institutionId_code: { institutionId: institution.id, code: 'ICE' } },
-    update: {},
+  const deptICT = await prisma.department.upsert({
+    where: { institutionId_code: { institutionId: institution.id, code: 'ICT' } },
+    update: { name: 'Department of Information and Communication Technology', code: 'ICT' },
     create: {
       institutionId: institution.id,
-      name: 'Department of Information and Communication Engineering',
-      code: 'ICE',
+      name: 'Department of Information and Communication Technology',
+      code: 'ICT',
     },
   });
 
-  const progBICE = await prisma.program.upsert({
-    where: { departmentId_code: { departmentId: deptICE.id, code: 'BICE' } },
+  const progBICT = await prisma.program.upsert({
+    where: { departmentId_code: { departmentId: deptICT.id, code: 'BICT' } },
     update: {},
     create: {
-      departmentId: deptICE.id,
-      name: 'Bachelor of Science in Information and Communication Engineering',
-      code: 'BICE',
+      departmentId: deptICT.id,
+      name: 'Bachelor of Science in Information and Communication Technology',
+      code: 'BICT',
     },
   });
-  console.log('✓ Department ICE · Program BICE');
+  console.log('✓ Department ICT · Program BICT');
 
   // ── Program Outcomes PO1-PO12 ─────────────────────────────────
   const poData = [
@@ -109,9 +109,9 @@ async function main() {
   const poMap = {};
   for (const po of poData) {
     const r = await prisma.programOutcome.upsert({
-      where: { programId_code: { programId: progBICE.id, code: po.code } },
+      where: { programId_code: { programId: progBICT.id, code: po.code } },
       update: {},
-      create: { programId: progBICE.id, ...po },
+      create: { programId: progBICT.id, ...po },
     });
     poMap[po.code] = r.id;
   }
@@ -139,19 +139,19 @@ async function main() {
   const sre = await prisma.course.upsert({
     where: { sessionId_code: { sessionId: sessions['Batch 2023'].id, code: 'ICE-3207' } },
     update: {},
-    create: { programId: progBICE.id, sessionId: sessions['Batch 2023'].id, name: 'Software and Requirement Engineering', code: 'ICE-3207', creditHours: 3 },
+    create: { programId: progBICT.id, sessionId: sessions['Batch 2023'].id, name: 'Software and Requirement Engineering', code: 'ICE-3207', creditHours: 3 },
   });
 
   const web = await prisma.course.upsert({
     where: { sessionId_code: { sessionId: sessions['Batch 2023'].id, code: 'ICE-3205' } },
     update: {},
-    create: { programId: progBICE.id, sessionId: sessions['Batch 2023'].id, name: 'Web Technologies', code: 'ICE-3205', creditHours: 3 },
+    create: { programId: progBICT.id, sessionId: sessions['Batch 2023'].id, name: 'Web Technologies', code: 'ICE-3205', creditHours: 3 },
   });
 
   const ai = await prisma.course.upsert({
     where: { sessionId_code: { sessionId: sessions['Batch 2022'].id, code: 'ICE-4107' } },
     update: {},
-    create: { programId: progBICE.id, sessionId: sessions['Batch 2022'].id, name: 'Artificial Intelligence', code: 'ICE-4107', creditHours: 3 },
+    create: { programId: progBICT.id, sessionId: sessions['Batch 2022'].id, name: 'Artificial Intelligence', code: 'ICE-4107', creditHours: 3 },
   });
 
   // SRE (ICE-3207) → Abrar Zawad (primary grader)
@@ -486,12 +486,12 @@ async function main() {
     await prisma.enrolment.upsert({
       where: { studentId_courseId: { studentId: stu.id, courseId: sre.id } },
       update: {},
-      create: { studentId: stu.id, courseId: sre.id, programId: progBICE.id },
+      create: { studentId: stu.id, courseId: sre.id, programId: progBICT.id },
     });
     await prisma.enrolment.upsert({
       where: { studentId_courseId: { studentId: stu.id, courseId: web.id } },
       update: {},
-      create: { studentId: stu.id, courseId: web.id, programId: progBICE.id },
+      create: { studentId: stu.id, courseId: web.id, programId: progBICT.id },
     });
   }
   console.log(`✓ All ${students.length} students enrolled in ICE-3207 (SRE) and ICE-3205 (Web Technologies)`);
@@ -622,11 +622,16 @@ async function main() {
     };
   }
 
-  // ── Per-student ability: uniform random across full range (0-100%) ──
+  // -- Per-student ability: ~70% score >= 60% (above attainment threshold) --
   const studentAbility = {};
   students.forEach((stu, i) => {
     const rng = seededRandom(i * 7919 + 1234);
-    studentAbility[stu.id] = 0.30 + rng() * 0.65; // 30-95%, no band classification
+    const cut = rng();
+    if (cut < 0.70) {
+      studentAbility[stu.id] = 0.62 + rng() * 0.33; // passing: 62-95%
+    } else {
+      studentAbility[stu.id] = 0.35 + rng() * 0.24; // failing: 35-59%
+    }
   });
 
   // ── Insert SRE marks (integer values) ──────────────────────────

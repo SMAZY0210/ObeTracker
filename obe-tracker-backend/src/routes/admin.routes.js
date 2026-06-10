@@ -45,6 +45,7 @@ router.put('/users/:id', c.updateUser);
 // Thresholds
 router.get('/thresholds', c.getThresholds);
 router.get('/attainment-report', c.getAttainmentReport);
+router.post('/users/bulk', c.bulkCreateUsers);
 router.put('/thresholds', c.upsertThresholds);
 
 module.exports = router;
