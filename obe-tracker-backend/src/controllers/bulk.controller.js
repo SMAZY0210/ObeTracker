@@ -5,8 +5,8 @@ const prisma = require('../prisma');
 const path = require('path');
 const fs = require('fs');
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR || './storage/uploads';
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const UPLOADS_DIR = process.env.UPLOADS_DIR || '/tmp/obe-uploads';
+try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch(e) {}
 
 const upload = multer({ dest: UPLOADS_DIR });
 const uploadMiddleware = upload.single('file');

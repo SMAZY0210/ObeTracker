@@ -2,8 +2,8 @@ const path = require('path');
 const fs = require('fs');
 const prisma = require('../prisma');
 
-const REPORTS_DIR = process.env.REPORTS_DIR || './storage/reports';
-fs.mkdirSync(REPORTS_DIR, { recursive: true });
+const REPORTS_DIR = process.env.REPORTS_DIR || '/tmp/obe-reports';
+try { fs.mkdirSync(REPORTS_DIR, { recursive: true }); } catch(e) {}
 
 // Helper: build report metadata
 const createReportRecord = async ({ courseId, generatedById, reportType, format, filePath }) => {
