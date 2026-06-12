@@ -10,13 +10,14 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow: no origin (curl/Postman), localhost ports, and file:// pages (origin = 'null')
-    if (!origin || origin === 'null' || origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      callback(null, true);
-    } else {
-      const allowed = (process.env.FRONTEND_URL || '').split(',').map(s => s.trim()).filter(Boolean);
-      callback(allowed.includes(origin) ? null : new Error('CORS'), allowed.includes(origin));
-    }
+    // Allow: no origin, file://, localhost, and any configured domains
+    if (!origin || origin === 'null') return callback(null, true);
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) return callback(null, true);
+    // Allow Netlify, Vercel preview URLs, and any FRONTEND_URL env var
+    if (origin.includes('.netlify.app') || origin.includes('.vercel.app')) return callback(null, true);
+    const allowed = (process.env.FRONTEND_URL || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (allowed.length === 0 || allowed.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS: origin not allowed'));
   },
   credentials: true,
 }));
