@@ -1,4 +1,4 @@
-const API_BASE = 'https://obe-tracker.vercel.app/v1';
+const API_BASE = 'http://localhost:3000/api/v1';
 
 const Api = {
   _token: null,
@@ -71,7 +71,11 @@ const Api = {
   createAssessment(courseId, d)       { return this.post('/faculty/courses/' + courseId + '/assessments', d); },
   getMarks(assessmentId)              { return this.get('/faculty/assessments/' + assessmentId + '/marks'); },
   saveMarks(assessmentId, marks)      { return this.post('/faculty/assessments/' + assessmentId + '/marks', { marks }); },
+  getCourseStudents(courseId)          { return this.get('/faculty/courses/' + courseId + '/students'); },
   getCourseAttainment(courseId)       { return this.get('/faculty/courses/' + courseId + '/attainment'); },
+  getStudentAttainment(courseId, studentId) { return this.get('/faculty/courses/' + courseId + '/students/' + studentId + '/attainment'); },
+  setAttainmentMark(courseId, assessmentId, mark) { return this.put('/faculty/courses/' + courseId + '/assessments/' + assessmentId + '/attainment-mark', { attainmentMark: mark }); },
+  getStudentAttainmentAdmin(studentId, courseId) { return this.get('/admin/students/' + studentId + '/attainment', courseId ? { courseId } : {}); },
 
   // Student
   getEnrolledCourses()                { return this.get('/student/courses'); },

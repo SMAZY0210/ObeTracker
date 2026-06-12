@@ -212,18 +212,218 @@ const FacultyView = {
           <button class="btn btn-primary btn-sm" onclick="FacultyView._addAssess()">${ico('plus')} Add Assessment</button>
         </div>
         <div class="tbl-wrap"><table><thead><tr>
-          <th>Title</th><th>Type</th><th>Total Marks</th><th>Maps to COs</th><th class="td-r">Actions</th>
+          <th>Title</th><th>Type</th><th>Total Marks</th><th>Attainment Mark</th><th>Maps to COs</th><th class="td-r">Actions</th>
         </tr></thead>
-        <tbody>${assessments.length ? assessments.map(a => `<tr>
-          <td class="fw7">${a.title}</td>
-          <td><span class="badge bg-gray">${a.type.replace(/_/g,' ')}</span></td>
-          <td>${a.totalMarks}</td>
-          <td>${(a.assessmentCOs||[]).map(ac=>`<span class="badge bg-green">${ac.courseOutcome?.code||''}</span>`).join(' ')||'-'}</td>
-          <td class="td-r">
-            <button class="btn btn-primary btn-xs" onclick="FacultyView._openMarksSheet('${a.id}','${a.title.replace(/'/g,'&#39;')}','${a.totalMarks}')">${ico('edit',13)} Enter Marks</button>
-          </td>
-        </tr>`).join('') : tdEmpty('No assessments yet',5)}</tbody></table></div>`;
+        <tbody>${assessments.length ? assessments.map(a => {
+          const attMark = a.weight > 0 ? a.weight : Math.floor(a.totalMarks * 0.6);
+          return `<tr>
+            <td class="fw7">${a.title}</td>
+            <td><span class="badge bg-gray">${a.type.replace(/_/g,' ')}</span></td>
+            <td>${a.totalMarks}</td>
+            <td>
+              <span id="am-${a.id}" style="font-weight:700;color:var(--green)">${attMark}</span>
+              <button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="FacultyView._setAttainMark('${a.id}','${a.totalMarks}',${attMark})" title="Edit attainment mark">&#9998;</button>
+            </td>
+            <td>${(a.assessmentCOs||[]).map(ac=>'<span class="badge bg-green">'+( ac.courseOutcome?.code||'')+'</span>').join(' ')||'-'}</td>
+            <td class="td-r" style="white-space:nowrap">
+              <button class="btn btn-secondary btn-xs" onclick="FacultyView._uploadMarks('${a.id}','${a.title.replace(/'/g,'&#39;')}','${a.totalMarks}')" title="Upload Excel/CSV">&#8679; Upload</button>
+              <button class="btn btn-primary btn-xs" onclick="FacultyView._openMarksSheet('${a.id}','${a.title.replace(/'/g,'&#39;')}','${a.totalMarks}')">${ico('edit',13)} Enter</button>
+            </td>
+          </tr>`;
+        }).join('') : tdEmpty('No assessments yet',6)}</tbody></table></div>`;
     } catch(e) { el.innerHTML = `<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
+  },
+
+  _setAttainMark(aid, totalMarks, current) {
+    showModal('Set Attainment Mark', `
+      <p class="text-sm text-muted mb3">
+        The attainment mark is the minimum a student must score on this assessment<br>
+        for it to count towards CO achievement. Default is 60% of total marks.
+      </p>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="fg" style="flex:1"><label>Attainment Mark</label>
+          <input id="am-inp" type="number" value="${current}" min="1" max="${totalMarks}" style="font-size:18px;font-weight:700;text-align:center">
+        </div>
+        <div style="padding-top:22px;color:var(--text3);font-size:13px">out of <strong>${totalMarks}</strong></div>
+      </div>
+      <p class="text-sm text-muted mt2">Valid range: 1 – ${totalMarks}</p>`,
+      '<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn btn-primary" id="save-attain-btn">Save</button>');
+    setTimeout(() => {
+      const btn = document.getElementById('save-attain-btn');
+      if (btn) btn.onclick = () => FacultyView._saveAttainMark(aid);
+    }, 50);
+  },
+
+  async _saveAttainMark(aid) {
+    const val = parseFloat(document.getElementById('am-inp').value);
+    if (!val || val < 1) return toast('Enter a valid attainment mark', 'err');
+    try {
+      await Api.setAttainmentMark(this._cid, aid, val);
+      document.getElementById('am-' + aid).textContent = val;
+      toast('Attainment mark updated - attainment recomputed');
+      closeModal();
+    } catch(e) { toast(e.message, 'err'); }
+  },
+
+  async _uploadMarks(aid, title, totalMarks) {
+    showModal('Upload Marks - ' + title, `
+      <div class="alert alert-info mb3"><span class="alert-icon">i</span>
+        Upload Excel (.xlsx) or CSV with columns: <strong>institutionalId</strong> (roll number) and <strong>marks</strong><br>
+        Total marks for this assessment: <strong>${totalMarks}</strong>
+      </div>
+      <div class="fg mb3">
+        <label>Download Template</label>
+        <button class="btn btn-secondary btn-sm" onclick="FacultyView._dlMarksTemplate('${aid}')">&#8659; CSV Template</button>
+      </div>
+      <div class="fg"><label>Upload File</label>
+        <input type="file" id="marks-upload-file" accept=".csv,.xlsx,.xls" style="padding:8px">
+      </div>
+      <div id="marks-upload-preview" class="mt3"></div>`,
+      '<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn btn-secondary" id="parse-marks-btn">Parse File</button>' +
+      '<button class="btn btn-primary" id="confirm-marks-btn">Confirm Upload</button>'
+    );
+    setTimeout(function() {
+      var pb = document.getElementById('parse-marks-btn');
+      var cb = document.getElementById('confirm-marks-btn');
+      var _aid = aid; var _tm = totalMarks;
+      if (pb) pb.onclick = function() { FacultyView._parseMarksFile(_aid, _tm); };
+      if (cb) cb.onclick = function() { FacultyView._confirmMarksUpload(_aid, _tm); };
+    }, 50);
+  },
+
+  async _dlMarksTemplate(aid) {
+    try {
+      const marks = await Api.getMarks(aid);
+      const rows = ['institutionalId,marks', ...marks.map(m => m.institutionalId + ',')];
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([rows.join('\n')], {type:'text/csv'}));
+      a.download = 'marks_template.csv'; a.click();
+    } catch(e) { toast(e.message, 'err'); }
+  },
+
+  async _parseMarksFile(aid, totalMarks) {
+    const file = document.getElementById('marks-upload-file')?.files[0];
+    if (!file) return toast('Select a file first', 'err');
+    const preview = document.getElementById('marks-upload-preview');
+    preview.innerHTML = '<div class="loading-box" style="padding:10px 0"><div class="spin"></div> Reading...</div>';
+    try {
+      let rows = [];
+      const tm = parseFloat(totalMarks);
+      if (file.name.endsWith('.csv')) {
+        const text = await file.text();
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,'').toLowerCase());
+        const idIdx = headers.findIndex(h => h.includes('id') || h.includes('roll'));
+        const markIdx = headers.findIndex(h => h.includes('mark') || h.includes('score'));
+        rows = lines.slice(1).filter(l => l.trim()).map(line => {
+          const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g,''));
+          return { institutionalId: vals[idIdx]||'', marks: vals[markIdx]||'' };
+        });
+      } else {
+        const ab = await file.arrayBuffer();
+        const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs');
+        const wb = XLSX.read(ab);
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
+        rows = raw.map(r => ({
+          institutionalId: String(r.institutionalId||r['Institutional ID']||r.rollNumber||r.roll||'').trim(),
+          marks: String(r.marks||r.Marks||r.score||r.Score||'').trim(),
+        }));
+      }
+      rows = rows.filter(r => r.institutionalId);
+      if (!rows.length) { preview.innerHTML = '<div class="alert alert-warn">No data found.</div>'; return; }
+
+      // Validate
+      const invalid = rows.filter(r => r.marks !== '' && (isNaN(parseFloat(r.marks)) || parseFloat(r.marks) < 0 || parseFloat(r.marks) > tm));
+      preview.innerHTML = '<div class="sec-title mb2">Preview - ' + rows.length + ' students</div>' +
+        (invalid.length ? '<div class="alert alert-warn mb2">&#9888; ' + invalid.length + ' row(s) have invalid marks (will be skipped)</div>' : '') +
+        '<div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)">' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr>' +
+        '<th style="padding:7px 10px">Roll No.</th><th style="padding:7px 10px">Marks</th><th style="padding:7px 10px">%</th><th style="padding:7px 10px">Status</th>' +
+        '</tr></thead><tbody>' +
+        rows.map((r,i) => {
+          const m = parseFloat(r.marks);
+          const valid = r.marks !== '' && !isNaN(m) && m >= 0 && m <= tm;
+          const pct = valid ? (m/tm*100).toFixed(1)+'%' : '-';
+          const st = !r.marks ? '<span class="text-muted">Empty</span>' : valid ? '<span class="badge '+(m/tm>=0.6?'bg-green':'bg-red')+'">'+(m/tm>=0.6?'Pass':'Fail')+'</span>' : '<span class="badge bg-red">Invalid</span>';
+          return '<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace">'+r.institutionalId+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-weight:700">'+( r.marks||'-')+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+pct+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+st+'</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      window._parsedMarks = rows;
+      toast(rows.length + ' rows parsed. Click Confirm Upload.', 'ok');
+    } catch(e) { preview.innerHTML = '<div class="alert alert-error"><span class="alert-icon">!</span>' + e.message + '</div>'; }
+  },
+
+  async _confirmMarksUpload(aid, totalMarks) {
+    const parsed = window._parsedMarks;
+    if (!parsed || !parsed.length) return toast('Parse a file first', 'err');
+    // Match institutionalId to studentId
+    try {
+      const allMarks = await Api.getMarks(aid);
+      const idMap = Object.fromEntries(allMarks.map(m => [m.institutionalId, m.studentId]));
+      const tm = parseFloat(totalMarks);
+      const marks = [];
+      const skipped = [];
+      for (const r of parsed) {
+        if (!r.marks) continue;
+        const m = parseFloat(r.marks);
+        if (isNaN(m) || m < 0 || m > tm) { skipped.push(r.institutionalId); continue; }
+        const sid = idMap[r.institutionalId];
+        if (!sid) { skipped.push(r.institutionalId + ' (not enrolled)'); continue; }
+        marks.push({ studentId: sid, marksObtained: m });
+      }
+      if (!marks.length) return toast('No valid marks to upload', 'err');
+      await Api.saveMarks(aid, marks);
+      toast('Uploaded ' + marks.length + ' marks' + (skipped.length ? ', skipped ' + skipped.length : ''));
+      closeModal();
+      window._parsedMarks = null;
+      this._loadAssess();
+    } catch(e) { toast(e.message, 'err'); }
+  },
+
+  async _viewStudentAttainment(courseId, studentId, studentName) {
+    showModal('Attainment - ' + studentName, loading(), '', true);
+    try {
+      const d = await Api.getStudentAttainment(courseId, studentId);
+      const stu = d.student || {};
+      const stuInfo = '<div style="display:flex;gap:16px;margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:var(--r)">' +
+        '<div><span class="text-muted text-sm">ID</span><div class="fw7" style="font-family:monospace">'+(stu.institutionalId||'--')+'</div></div>' +
+        (stu.section?'<div><span class="text-muted text-sm">Section</span><div class="fw7">Section '+stu.section+'</div></div>':'') +
+        '</div>';
+
+      const coRows = (d.coAttainments||[]).map(r => {
+        const att = r.level === 'L3';
+        return '<tr><td><span class="badge bg-green">' + r.courseOutcome.code + '</span></td>' +
+          '<td>' + r.courseOutcome.title + '</td>' +
+          '<td style="text-align:center"><span class="badge ' + (att?'bg-green':'bg-red') + '">' + (att?'Attained':'Not Attained') + '</span></td>' +
+          '<td style="text-align:right;font-weight:700;color:' + (att?'var(--l3)':'var(--l0)') + '">' + r.percentage.toFixed(1) + '%</td></tr>';
+      }).join('');
+      const poRows = (d.poAttainments||[]).map(r => {
+        const att = r.level === 'L3';
+        return '<tr><td><span class="badge bg-blue">' + r.programOutcome.code + '</span></td>' +
+          '<td>' + r.programOutcome.title + '</td>' +
+          '<td style="text-align:center"><span class="badge ' + (att?'bg-green':'bg-red') + '">' + (att?'Attained':'Not Attained') + '</span></td>' +
+          '<td style="text-align:right;font-weight:700;color:' + (att?'var(--l3)':'var(--l0)') + '">' + r.percentage.toFixed(1) + '%</td></tr>';
+      }).join('');
+      const assRows = (d.assessmentDetail||[]).map(a => {
+        const hm = a.marksObtained != null;
+        return '<tr><td class="fw6">' + a.title + '</td>' +
+          '<td style="text-align:center">' + a.totalMarks + '</td>' +
+          '<td style="text-align:center;color:var(--text3)">' + a.attainmentMark + '</td>' +
+          '<td style="text-align:center;font-weight:700">' + (hm ? a.marksObtained : '-') + '</td>' +
+          '<td style="text-align:center">' + (hm ? '<span class="badge ' + (a.passed?'bg-green':'bg-red') + '">' + (a.passed?'Pass':'Fail') + '</span>' : '-') + '</td></tr>';
+      }).join('');
+      document.getElementById('modal-body').innerHTML =
+        stuInfo +
+        '<div class="sec-title mb2">Marks by Assessment</div>' +
+        '<div class="tbl-wrap mb4"><table><thead><tr><th>Assessment</th><th style="text-align:center">Total</th><th style="text-align:center">Attainment Mark</th><th style="text-align:center">Obtained</th><th style="text-align:center">Result</th></tr></thead><tbody>' + assRows + '</tbody></table></div>' +
+        '<div class="sec-title mb2">CO Attainment</div>' +
+        '<div class="tbl-wrap mb4"><table><thead><tr><th>CO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead><tbody>' + coRows + '</tbody></table></div>' +
+        '<div class="sec-title mb2">PO Attainment</div>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>PO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead><tbody>' + poRows + '</tbody></table></div>';
+      document.getElementById('modal-ft').innerHTML = '<button class="btn btn-ghost" onclick="closeModal()">Close</button>';
+      document.getElementById('modal-ft').classList.remove('hidden');
+    } catch(e) { document.getElementById('modal-body').innerHTML = '<div class="alert alert-error"><span class="alert-icon">!</span>' + e.message + '</div>'; }
   },
 
   async _addAssess() {
@@ -394,7 +594,7 @@ const FacultyView = {
         </table></div>
 
         <div class="sec-title mb3">Program Outcome Attainment</div>
-        <div class="tbl-wrap"><table>
+        <div class="tbl-wrap mb4"><table>
           <thead><tr>
             <th>PO</th><th>Title</th>
             <th style="text-align:center">Students Attained</th>
@@ -411,11 +611,93 @@ const FacultyView = {
               <td>${attBar(po.attainmentRate, lvl)}</td>
             </tr>`;
           }).join('')}</tbody>
-        </table></div>`;
+        </table></div>
+        <div class="sec-title mb3">Individual Student Report</div>
+        <div id="att-students">${loading()}</div>`;
+      // Load enrolled students for per-student view
+      FacultyView._loadAttainStudents();
     } catch(e) { el.innerHTML = `<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
   },
 
   // ── Reports ──────────────────────────────────────────────────
+  async _loadAttainStudents() {
+    const el = document.getElementById('att-students');
+    if (!el) return;
+    try {
+      const students = await Api.getCourseStudents(this._cid);
+      if (!students || !students.length) {
+        el.innerHTML = '<div class="empty-box"><h3>No students enrolled in this course</h3></div>';
+        return;
+      }
+      this._allAttainStudents = students;
+      this._renderAttainStudents(students);
+    } catch(e) {
+      if (el) el.innerHTML = '<div class="alert alert-warn"><span class="alert-icon">&#9888;</span>' + e.message + '</div>';
+    }
+  },
+
+  _renderAttainStudents(students) {
+    const el = document.getElementById('att-students');
+    if (!el) return;
+    if (!students.length) {
+      el.innerHTML = '<div class="empty-box"><h3>No students match the filter</h3></div>';
+      return;
+    }
+    const ths = 'padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);border-bottom:1px solid var(--border)';
+    el.innerHTML =
+      '<div style="display:flex;gap:10px;margin-bottom:12px">' +
+        '<div class="search-wrap" style="flex:1"><input id="att-stu-search" placeholder="Search name or roll number..." oninput="FacultyView._filterAttainStudents()" style="font-size:13px"></div>' +
+        '<select id="att-stu-section" onchange="FacultyView._filterAttainStudents()" style="min-width:130px">' +
+          '<option value="">All Sections</option>' +
+          '<option value="A">Section A</option>' +
+          '<option value="B">Section B</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse">' +
+      '<thead style="background:var(--surface2)"><tr>' +
+        '<th style="' + ths + ';width:40px">#</th>' +
+        '<th style="' + ths + '">Roll No.</th>' +
+        '<th style="' + ths + '">Name</th>' +
+        '<th style="' + ths + '">Section</th>' +
+        '<th style="' + ths + '">Batch</th>' +
+        '<th style="' + ths + ';text-align:right">Report</th>' +
+      '</tr></thead><tbody>' +
+      students.map((s, i) => {
+        const batch = s.institutionalId ? 'Batch 20' + s.institutionalId.substring(0,2) : '--';
+        const sec   = s.section ? 'Section ' + s.section : '--';
+        return '<tr style="background:' + (i%2?'var(--surface2)':'var(--surface)') + '">' +
+          '<td style="padding:9px 12px;color:var(--text3);border-bottom:1px solid var(--border)">' + (i+1) + '</td>' +
+          '<td style="padding:9px 12px;font-family:monospace;font-size:12px;border-bottom:1px solid var(--border)">' + (s.institutionalId||'-') + '</td>' +
+          '<td style="padding:9px 12px;font-weight:600;border-bottom:1px solid var(--border)">' + s.firstName + ' ' + s.lastName + '</td>' +
+          '<td style="padding:9px 12px;border-bottom:1px solid var(--border)"><span class="badge bg-gray">' + sec + '</span></td>' +
+          '<td style="padding:9px 12px;border-bottom:1px solid var(--border)"><span class="badge bg-blue">' + batch + '</span></td>' +
+          '<td style="padding:9px 12px;text-align:right;border-bottom:1px solid var(--border)">' +
+            '<button class="btn btn-primary btn-xs stu-att-btn" data-cid="' + this._cid + '" data-sid="' + s.id + '" data-name="' + (s.firstName + ' ' + s.lastName).replace(/"/g,'&quot;') + '">View Report</button>' +
+          '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>' +
+      '<div class="mt2 text-sm text-muted">' + students.length + ' students enrolled</div>';
+
+    el.querySelectorAll('.stu-att-btn').forEach(function(btn) {
+      btn.onclick = function() {
+        FacultyView._viewStudentAttainment(btn.dataset.cid, btn.dataset.sid, btn.dataset.name);
+      };
+    });
+  },
+
+  _filterAttainStudents() {
+    const q     = (document.getElementById('att-stu-search')?.value || '').toLowerCase();
+    const sec   = document.getElementById('att-stu-section')?.value || '';
+    const all   = this._allAttainStudents || [];
+    const filtered = all.filter(s => {
+      const matchQ   = !q || (s.firstName+' '+s.lastName).toLowerCase().includes(q) || (s.institutionalId||'').includes(q);
+      const matchSec = !sec || s.section === sec;
+      return matchQ && matchSec;
+    });
+    this._renderAttainStudents(filtered);
+  },
+
+
   async reports() {
     document.getElementById('view-root').innerHTML = `
       <div class="page-hd"><div class="page-hd-left"><h1>Reports</h1><div class="hd-sub">Generate course attainment reports</div></div></div>

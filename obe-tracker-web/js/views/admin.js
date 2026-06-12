@@ -176,10 +176,15 @@ const AdminView={
         <select id="uf-dept" onchange="AdminView._loadU()">
           <option value="">-- Department --</option>
         </select>
+        <select id="uf-section" onchange="AdminView._loadU()">
+          <option value="">-- Section --</option>
+          <option value="A">Section A</option>
+          <option value="B">Section B</option>
+        </select>
       </div>
       <div class="tbl-wrap"><table><thead><tr>
-        <th>Name</th><th>Email / ID</th><th>Role</th><th>Batch</th>
-        <th style="text-align:center">Active</th><th>Last Login</th>
+        <th>Name</th><th>Email / ID</th><th>Role</th><th>Batch</th><th>Section</th>
+        <th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Report</th>
       </tr></thead>
       <tbody id="utb"><tr><td colspan="6" class="td-load text-muted">Select a role or batch year above to view users.</td></tr></tbody>
       </table></div>`;
@@ -196,8 +201,9 @@ const AdminView={
       try{const depts=await Api.getDepartments();depts.forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;deptSel.appendChild(o);});}catch(_){}
     }
 
-    if(!role && !batchYear && !deptId){
-      document.getElementById('utb').innerHTML='<tr><td colspan="6" class="td-load text-muted">Select a role, batch or department to view users.</td></tr>';
+    const section2=document.getElementById('uf-section')?.value;
+    if(!role && !batchYear && !deptId && !section2){
+      document.getElementById('utb').innerHTML='<tr><td colspan="8" class="td-load text-muted">Select a role, batch or department to view users.</td></tr>';
       return;
     }
     document.getElementById('utb').innerHTML=tdLoad(6);
@@ -205,12 +211,14 @@ const AdminView={
       const params={};
       if(role) params.role=role;
       if(batchYear) params.batchYear=batchYear;
+      const section=document.getElementById('uf-section')?.value;
+      if(section) params.section=section;
       const l=await Api.getUsers(params);
       // Client-side dept filter: filter by institutionalId prefix or show all
       // (dept filtering is approximate for now — backend doesn't have dept on user directly)
       this._ul=l;
       if(!l.length){
-        document.getElementById('utb').innerHTML='<tr><td colspan="6" class="td-load text-muted">No users found for the selected filters.</td></tr>';
+        document.getElementById('utb').innerHTML='<tr><td colspan="8" class="td-load text-muted">No users found for the selected filters.</td></tr>';
       } else {
         this._renderU(l);
       }
@@ -221,23 +229,41 @@ const AdminView={
   _renderU(list){
     const getBatch = (u) => {
       if(u.role !== 'STUDENT' || !u.institutionalId) return '--';
-      const yr = u.institutionalId.substring(0,2);
-      return '20'+yr;
+      return 'Batch 20' + u.institutionalId.substring(0,2);
     };
     document.getElementById('utb').innerHTML = list.length ? list.map(u => {
       const batch = getBatch(u);
+      const sec = (u.role==='STUDENT' && u.section) ? '<span class="badge bg-gray">Section '+u.section+'</span>' : '--';
       return `<tr>
         <td class="fw7">${u.firstName} ${u.lastName}</td>
         <td class="text-muted text-sm">${u.role==='STUDENT'?(u.institutionalId||u.email):u.email}</td>
         <td><span class="role-pill rp-${u.role}">${u.role}</span></td>
-        <td><span class="badge ${u.role==='STUDENT'?'bg-blue':'bg-gray'}">${u.role==='STUDENT'?'Batch '+batch:'--'}</span></td>
+        <td><span class="badge ${u.role==='STUDENT'?'bg-blue':'bg-gray'}">${u.role==='STUDENT'?batch:'--'}</span></td>
+        <td>${sec}</td>
         <td style="text-align:center">
           <label class="tog"><input type="checkbox" ${u.isActive?'checked':''} onchange="AdminView._togUser('${u.id}',this)"><span class="tog-track"></span></label>
         </td>
         <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
+        <td class="td-r">${u.role==='STUDENT'?`<button class="btn btn-primary btn-xs" onclick="AdminView._viewStuAtt('${u.id}','${u.firstName} ${u.lastName}')">Attainment</button>`:'--'}</td>
       </tr>`;
-    }).join('') : tdEmpty('No users found', 6);
+    }).join('') : tdEmpty('No users found', 7);
   },
+  async outcomes(){
+    const progs = await Api.getPrograms();
+    document.getElementById('view-root').innerHTML = `
+      <div class="page-hd">
+        <div class="page-hd-left"><h1>Program Outcomes</h1><div class="hd-sub">PO1-PO12 per program</div></div>
+        <div class="page-hd-actions">
+          <select id="po-prog" style="min-width:260px" onchange="AdminView._loadPOs()">
+            ${progs.map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('')}
+          </select>
+          <button class="btn btn-primary" onclick="AdminView._addPO()">${ico('plus')} Add PO</button>
+        </div>
+      </div>
+      <div id="po-area">${loading()}</div>`;
+    if (progs.length) this._loadPOs();
+  },
+
   async _loadPOs(){
     const pid=document.getElementById('po-prog')?.value;if(!pid)return;
     const el=document.getElementById('po-area');el.innerHTML=loading();
@@ -273,38 +299,106 @@ const AdminView={
 
   // ── Thresholds ─────────────────────────────────────────────
   async _togUser(id,cb){const v=cb.checked;try{await Api.updateUser(id,{isActive:v});toast('User '+(v?'activated':'deactivated'))}catch(e){cb.checked=!v;toast(e.message,'err')}},
-  _bulkUpload(){showModal('Bulk Upload Users',`<div class="alert alert-info mb3"><span class="alert-icon">i</span>Upload CSV or Excel. Columns: <strong>firstName, lastName, email, role, institutionalId</strong><br>Role: STUDENT / FACULTY / ADMIN. Student password defaults to institutionalId.</div><div class="fg mb3"><label>Download Template</label><button class="btn btn-secondary btn-sm" onclick="AdminView._dlTemplate()">${ico('dl',13)} CSV Template</button></div><div class="fg"><label>Upload File (CSV or Excel)</label><input type="file" id="bulk-file" accept=".csv,.xlsx,.xls" style="padding:8px"></div><div id="bulk-preview" class="mt3"></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-secondary" onclick="AdminView._parseFile()">${ico('edit')} Parse File</button><button class="btn btn-primary" onclick="AdminView._confirmBulk()">${ico('save')} Confirm Upload</button>`);},
-  _dlTemplate(){const csv='firstName,lastName,email,role,institutionalId\nJohn,Doe,john@bup.edu.bd,STUDENT,23549009999\nJane,Smith,jane@bup.edu.bd,FACULTY,';const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='users_template.csv';a.click();},
+  _bulkUpload(){showModal('Bulk Upload Users',`<div class="alert alert-info mb3"><span class="alert-icon">i</span>Upload CSV or Excel. Required columns:<br><strong>firstName, lastName, email, role, institutionalId, section</strong><br>Role: STUDENT / FACULTY / ADMIN &nbsp;|&nbsp; Section: A or B (students only)<br>Student password defaults to institutionalId.</div><div class="fg mb3"><label>Download Template</label><button class="btn btn-secondary btn-sm" onclick="AdminView._dlTemplate()">${ico('dl',13)} CSV Template</button></div><div class="fg"><label>Upload File (CSV or Excel)</label><input type="file" id="bulk-file" accept=".csv,.xlsx,.xls" style="padding:8px"></div><div id="bulk-preview" class="mt3"></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-secondary" onclick="AdminView._parseFile()">${ico('edit')} Parse File</button><button class="btn btn-primary" onclick="AdminView._confirmBulk()">${ico('save')} Confirm Upload</button>`);},
+  _dlTemplate(){const csv='firstName,lastName,email,role,institutionalId,section\nJohn,Doe,john@bup.edu.bd,STUDENT,23549009999,A\nJane,Smith,jane@bup.edu.bd,STUDENT,23549009998,B\nProf,Khan,prof@bup.edu.bd,FACULTY,,';const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='users_template.csv';a.click();},
   async _parseFile(){
     const file=document.getElementById('bulk-file')?.files[0];if(!file)return toast('Select a file','err');
     const preview=document.getElementById('bulk-preview');preview.innerHTML='<div class="loading-box" style="padding:10px 0"><div class="spin"></div> Reading...</div>';
     try{
-      let users=[];const mapRow=r=>({firstName:String(r.firstName||r['First Name']||r.firstname||'').trim(),lastName:String(r.lastName||r['Last Name']||r.lastname||'').trim(),email:String(r.email||r.Email||'').trim(),role:String(r.role||r.Role||'STUDENT').toUpperCase().trim(),institutionalId:String(r.institutionalId||r['Institutional ID']||r.institutionalid||'').trim()});
+      let users=[];const mapRow=r=>({firstName:String(r.firstName||r['First Name']||r.firstname||'').trim(),lastName:String(r.lastName||r['Last Name']||r.lastname||'').trim(),email:String(r.email||r.Email||'').trim(),role:String(r.role||r.Role||'STUDENT').toUpperCase().trim(),institutionalId:String(r.institutionalId||r['Institutional ID']||r.institutionalid||'').trim(),section:(String(r.section||r.Section||'').trim().toUpperCase()||null)});
       if(file.name.endsWith('.csv')){const text=await file.text();const ls=text.trim().split('\n');const headers=ls[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());users=ls.slice(1).filter(l=>l.trim()).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return mapRow({firstName:obj.firstname||obj['first name'],lastName:obj.lastname||obj['last name'],email:obj.email,role:obj.role,institutionalId:obj.institutionalid||obj['institutional id']});});}
       else{const ab=await file.arrayBuffer();const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs');const wb=XLSX.read(ab);users=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}).map(mapRow);}
       if(!users.length){preview.innerHTML='<div class="alert alert-warn">No data found.</div>';return;}
-      preview.innerHTML='<div class="sec-title mb2">Preview - '+users.length+' users</div><div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:7px 10px">Name</th><th style="padding:7px 10px">Email / ID</th><th style="padding:7px 10px">Role</th><th style="padding:7px 10px">Batch</th></tr></thead><tbody>'+users.slice(0,50).map((u,i)=>'<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border)">'+u.firstName+' '+u.lastName+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace;font-size:11px">'+(u.role==='STUDENT'?(u.institutionalId||u.email):u.email)+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)"><span class="role-pill rp-'+(u.role||'STUDENT')+'">'+(u.role||'STUDENT')+'</span></td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.role==='STUDENT'&&u.institutionalId?'Batch 20'+u.institutionalId.substring(0,2):'--')+'</td></tr>').join('')+(users.length>50?'<tr><td colspan="4" style="padding:8px;text-align:center;color:var(--text3)">...and '+(users.length-50)+' more</td></tr>':'')+'</tbody></table></div>';
+      preview.innerHTML='<div class="sec-title mb2">Preview - '+users.length+' users</div><div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:7px 10px">Name</th><th style="padding:7px 10px">Email / ID</th><th style="padding:7px 10px">Role</th><th style="padding:7px 10px">Batch</th><th style="padding:7px 10px">Section</th></tr></thead><tbody>'+users.slice(0,50).map((u,i)=>'<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border)">'+u.firstName+' '+u.lastName+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace;font-size:11px">'+(u.role==='STUDENT'?(u.institutionalId||u.email):u.email)+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)"><span class="role-pill rp-'+(u.role||'STUDENT')+'">'+(u.role||'STUDENT')+'</span></td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.role==='STUDENT'&&u.institutionalId?'Batch 20'+u.institutionalId.substring(0,2):'--')+'</td></tr>').join('')+(users.length>50?'<tr><td colspan="4" style="padding:8px;text-align:center;color:var(--text3)">...and '+(users.length-50)+' more</td></tr>':'')+'</tbody></table></div>';
       window._bulkUsers=users;toast(users.length+' users parsed. Click Confirm Upload.','ok');
     }catch(e){preview.innerHTML='<div class="alert alert-error"><span class="alert-icon">!</span>'+e.message+'</div>';}
   },
   async _confirmBulk(){const users=window._bulkUsers;if(!users||!users.length)return toast('Parse a file first','err');
     try{const res=await Api.bulkCreateUsers(users);toast('Created: '+res.created+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
-  _addUser(){showModal('Create User',`<div class="form-row fr2 mb3"><div class="fg"><label>First Name</label><input id="mu-fn" placeholder="First name"></div><div class="fg"><label>Last Name</label><input id="mu-ln" placeholder="Last name"></div></div><div class="fg mb3"><label>Email</label><input id="mu-em" type="email" placeholder="name@bup.edu.bd"></div><div class="form-row fr2"><div class="fg"><label>Role</label><select id="mu-role"><option value="STUDENT">Student</option><option value="FACULTY">Faculty</option><option value="ADMIN">Admin</option></select></div><div class="fg"><label>Institutional ID <span class="text-muted">(optional)</span></label><input id="mu-id" placeholder="e.g. 23549009001"></div></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveUser()">${ico('save')} Create</button>`)},
-  async _saveUser(){const d={firstName:document.getElementById('mu-fn').value.trim(),lastName:document.getElementById('mu-ln').value.trim(),email:document.getElementById('mu-em').value.trim(),role:document.getElementById('mu-role').value,institutionalId:document.getElementById('mu-id').value.trim()||null};if(!d.firstName||!d.lastName||!d.email)return toast('Name and email required','err');try{const r=await Api.createUser(d);toast('Created! Temp password: '+r.tempPassword,'ok');closeModal();this._loadU()}catch(e){toast(e.message,'err')}},
-
-  async outcomes(){
-    const progs=await Api.getPrograms();
-    document.getElementById('view-root').innerHTML=`
-      <div class="page-hd">
-        <div class="page-hd-left"><h1>Program Outcomes</h1><div class="hd-sub">PO1-PO12 per program</div></div>
-        <div class="page-hd-actions">
-          <select id="po-prog" style="min-width:260px" onchange="AdminView._loadPOs()">${progs.map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('')}</select>
-          <button class="btn btn-primary" onclick="AdminView._addPO()">${ico('plus')} Add PO</button>
+  _addUser() {
+    showModal('Create User', `
+      <div class="form-row fr2 mb3">
+        <div class="fg"><label>First Name</label><input id="mu-fn" placeholder="First name"></div>
+        <div class="fg"><label>Last Name</label><input id="mu-ln" placeholder="Last name"></div>
+      </div>
+      <div class="fg mb3"><label>Email</label>
+        <input id="mu-em" type="email" placeholder="name@bup.edu.bd">
+      </div>
+      <div class="form-row fr2 mb3">
+        <div class="fg"><label>Role</label>
+          <select id="mu-role" onchange="AdminView._onRoleChange()">
+            <option value="STUDENT">Student</option>
+            <option value="FACULTY">Faculty</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+        </div>
+        <div class="fg"><label>Institutional ID</label>
+          <input id="mu-id" placeholder="e.g. 23549009001">
         </div>
       </div>
-      <div id="po-area">${loading()}</div>`;
-    if(progs.length) this._loadPOs();
+      <div id="mu-extra" style="border-top:1px solid var(--border);padding-top:14px">
+        <div class="form-row fr3 mb0">
+          <div class="fg"><label>Batch Year</label>
+            <select id="mu-batch">
+              <option value="">-- Select --</option>
+              ${['2020','2021','2022','2023','2024','2025','2026'].map(y=>'<option value="'+y+'">'+y+'</option>').join('')}
+            </select>
+          </div>
+          <div class="fg"><label>Section</label>
+            <select id="mu-section">
+              <option value="">-- Select --</option>
+              <option value="A">Section A</option>
+              <option value="B">Section B</option>
+            </select>
+          </div>
+          <div class="fg"><label>Department</label>
+            <select id="mu-dept"><option value="">Loading...</option></select>
+          </div>
+        </div>
+      </div>`,
+      `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+       <button class="btn btn-primary" onclick="AdminView._saveUser()">${ico('save')} Create</button>`
+    );
+    // Populate departments after modal renders
+    setTimeout(() => {
+      Api.getDepartments().then(depts => {
+        const s = document.getElementById('mu-dept');
+        if (s) s.innerHTML = '<option value="">-- Select --</option>' +
+          depts.map(d => '<option value="' + d.id + '">' + d.name + '</option>').join('');
+      }).catch(() => {});
+      // Show extra fields by default (Student is default role)
+      AdminView._onRoleChange();
+    }, 50);
   },
+
+  _onRoleChange() {
+    const role  = document.getElementById('mu-role')?.value;
+    const extra = document.getElementById('mu-extra');
+    if (extra) extra.style.display = (role === 'STUDENT' || !role) ? '' : 'none';
+  },
+
+
+  async _saveUser() {
+    const role   = document.getElementById('mu-role').value;
+    const instId = document.getElementById('mu-id').value.trim();
+    const section = role === 'STUDENT' ? (document.getElementById('mu-section')?.value || null) : null;
+    const d = {
+      firstName:      document.getElementById('mu-fn').value.trim(),
+      lastName:       document.getElementById('mu-ln').value.trim(),
+      email:          document.getElementById('mu-em').value.trim(),
+      role,
+      institutionalId: instId || null,
+      section,
+    };
+    if (!d.firstName || !d.lastName || !d.email) return toast('Name and email required', 'err');
+    try {
+      const r = await Api.createUser(d);
+      toast('Created! Password: ' + (r.tempPassword || instId || '1234'), 'ok');
+      closeModal();
+      this._loadU();
+    } catch(e) { toast(e.message, 'err'); }
+  },
+
 
   async attainmentReport(){
     document.getElementById('view-root').innerHTML=`<div class="page-hd"><div class="page-hd-left"><h1>Attainment Report</h1><div class="hd-sub">CO/PO attainment by batch and department</div></div></div>${loading()}`;
@@ -318,6 +412,8 @@ const AdminView={
               <select id="ar-sess"><option value="">All Batches</option>${sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
             <div class="fg" style="flex:1;margin:0"><label>Department</label>
               <select id="ar-dept"><option value="">All Departments</option>${depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('')}</select></div>
+            <div class="fg" style="flex:1;margin:0"><label>Student ID (optional)</label>
+              <input id="ar-stu" placeholder="e.g. 23549009001" style="font-family:monospace"></div>
             <div style="padding-top:22px">
               <button class="btn btn-primary" onclick="AdminView._loadAttainReport()">${ico('chart')} View Report</button>
             </div>
@@ -333,9 +429,21 @@ const AdminView={
     const el=document.getElementById('ar-result');
     el.innerHTML=loading();
     try{
+      const stuInput=document.getElementById('ar-stu')?.value?.trim();
       const filters={};
       if(sessId) filters.sessionId=sessId;
       if(deptId) filters.departmentId=deptId;
+
+      // If student ID entered, look up student and show individual report
+      if(stuInput){
+        const users=await Api.getUsers({role:'STUDENT',search:stuInput});
+        const stu=users.find(u=>u.institutionalId===stuInput||u.email===stuInput);
+        if(!stu){el.innerHTML='<div class="alert alert-warn">Student "'+stuInput+'" not found.</div>';return;}
+        AdminView._viewStuAtt(stu.id, stu.firstName+' '+stu.lastName);
+        el.innerHTML='';
+        return;
+      }
+
       const{coSummary,poSummary}=await Api.getAttainmentReport(filters);
       if(!coSummary.length&&!poSummary.length){
         el.innerHTML=`<div class="empty-box"><div class="empty-ico">${ico('chart',24)}</div><h3>No data for this filter</h3><p>Try a different batch or department.</p></div>`;
@@ -350,11 +458,11 @@ const AdminView={
             <th style="min-width:160px">Rate</th></tr></thead>
           <tbody>${coSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';return`<tr>
             <td><span class="code-badge">${r.courseCode}</span></td>
-            <td><span class="badge bg-green">${r.coCode}</span></td>
-            <td>${r.coTitle}</td>
-            <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attainedCount}</td>
-            <td style="text-align:center;color:var(--text3)">${r.total}</td>
-            <td>${attBar(r.attainmentRate,lvl)}</td>
+            <td><span class="badge bg-green">${r.coCode||'?'}</span></td>
+            <td>${r.coTitle||'?'}</td>
+            <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attained||0}</td>
+            <td style="text-align:center;color:var(--text3)">${r.total||0}</td>
+            <td>${attBar(r.attainmentRate||0,lvl)}</td>
           </tr>`}).join('')}</tbody>
         </table></div>
         <div class="sec-title mb3">Program Outcome Attainment</div>
@@ -363,24 +471,91 @@ const AdminView={
             <th style="text-align:center">Attained</th><th style="text-align:center">Total</th>
             <th style="min-width:160px">Rate</th></tr></thead>
           <tbody>${poSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';return`<tr>
-            <td><span class="badge bg-blue">${r.poCode}</span></td>
-            <td>${r.poTitle}</td>
-            <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attainedCount}</td>
-            <td style="text-align:center;color:var(--text3)">${r.total}</td>
-            <td>${attBar(r.attainmentRate,lvl)}</td>
+            <td><span class="badge bg-blue">${r.poCode||'?'}</span></td>
+            <td>${r.poTitle||'?'}</td>
+            <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attained||0}</td>
+            <td style="text-align:center;color:var(--text3)">${r.total||0}</td>
+            <td>${attBar(r.attainmentRate||0,lvl)}</td>
           </tr>`}).join('')}</tbody>
         </table></div>`;
       this._lastReport={coSummary,poSummary};
     }catch(e){el.innerHTML=`<div class="alert alert-error"><span class="alert-icon">&#9888;</span>${e.message}</div>`}
   },
 
+  async _viewStuAtt(studentId, name){
+    showModal('Attainment Report - ' + name, loading(), '', true);
+    try{
+      const d = await Api.getStudentAttainmentAdmin(studentId);
+      const stu = d.student || {};
+      const batch = stu.institutionalId ? 'Batch 20'+stu.institutionalId.substring(0,2) : '--';
+      const sec   = stu.section ? 'Section '+stu.section : '--';
+
+      const coByGroup = {};
+      (d.coAttainments||[]).forEach(r => {
+        const k = r.courseId || 'Unknown';
+        if(!coByGroup[k]) coByGroup[k] = { courseCode: r.courseCode||k, rows: [] };
+        coByGroup[k].rows.push(r);
+      });
+
+      let coHtml = '';
+      if((d.coAttainments||[]).length === 0){
+        coHtml = '<tr><td colspan="4" class="td-load text-muted">No CO attainment data yet</td></tr>';
+      } else {
+        (d.coAttainments||[]).forEach(r => {
+          const att = r.level==='L3';
+          coHtml += '<tr>' +
+            '<td><span class="badge bg-green">'+r.courseOutcome.code+'</span></td>' +
+            '<td>'+r.courseOutcome.title+'</td>' +
+            '<td style="text-align:center"><span class="badge '+(att?'bg-green':'bg-red')+'">'+(att?'Attained':'Not Attained')+'</span></td>' +
+            '<td style="text-align:right;font-weight:700;color:'+(att?'var(--l3)':'var(--l0)')+'">'+r.percentage.toFixed(1)+'%</td>' +
+            '</tr>';
+        });
+      }
+
+      let poHtml = '';
+      if((d.poAttainments||[]).length === 0){
+        poHtml = '<tr><td colspan="4" class="td-load text-muted">No PO attainment data yet</td></tr>';
+      } else {
+        (d.poAttainments||[]).forEach(r => {
+          const att = r.level==='L3';
+          poHtml += '<tr>' +
+            '<td><span class="badge bg-blue">'+r.programOutcome.code+'</span></td>' +
+            '<td>'+r.programOutcome.title+'</td>' +
+            '<td style="text-align:center"><span class="badge '+(att?'bg-green':'bg-red')+'">'+(att?'Attained':'Not Attained')+'</span></td>' +
+            '<td style="text-align:right;font-weight:700;color:'+(att?'var(--l3)':'var(--l0)')+'">'+r.percentage.toFixed(1)+'%</td>' +
+            '</tr>';
+        });
+      }
+
+      document.getElementById('modal-body').innerHTML =
+        '<div style="display:flex;gap:16px;margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:var(--r)">' +
+          '<div><span class="text-muted text-sm">Student</span><div class="fw7">'+name+'</div></div>' +
+          '<div><span class="text-muted text-sm">ID</span><div class="fw7" style="font-family:monospace">'+(stu.institutionalId||'--')+'</div></div>' +
+          '<div><span class="text-muted text-sm">Batch</span><div class="fw7">'+batch+'</div></div>' +
+          '<div><span class="text-muted text-sm">Section</span><div class="fw7">'+sec+'</div></div>' +
+        '</div>' +
+        '<div class="sec-title mb2">Course Outcome Attainment</div>' +
+        '<div class="tbl-wrap mb4"><table><thead><tr><th>CO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead>' +
+        '<tbody>'+coHtml+'</tbody></table></div>' +
+        '<div class="sec-title mb2">Program Outcome Attainment</div>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>PO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead>' +
+        '<tbody>'+poHtml+'</tbody></table></div>';
+
+      const attained = (d.coAttainments||[]).filter(r=>r.level==='L3').length;
+      const total    = (d.coAttainments||[]).length;
+      document.getElementById('modal-ft').innerHTML =
+        '<span class="text-sm text-muted">CO attained: '+attained+'/'+total+'</span>' +
+        '<button class="btn btn-ghost" onclick="closeModal()">Close</button>';
+      document.getElementById('modal-ft').classList.remove('hidden');
+    }catch(e){document.getElementById('modal-body').innerHTML='<div class="alert alert-error">'+e.message+'</div>';}
+  },
   _exportCSV(){
     const d=this._lastReport; if(!d) return;
     const rows=[
       ['Type','Course','Code','Title','Attained','Total','Rate(%)'],
-      ...d.coSummary.map(r=>['CO',r.courseCode,r.coCode,r.coTitle,r.attainedCount,r.total,r.attainmentRate]),
+      ...d.coSummary.map(r=>['CO',r.courseCode,r.coCode,r.coTitle,r.attained,r.total,r.attainmentRate]),
       ['','','','','','',''],
-      ...d.poSummary.map(r=>['PO','',r.poCode,r.poTitle,r.attainedCount,r.total,r.attainmentRate]),
+      ...d.poSummary.map(r=>['PO','',r.poCode,r.poTitle,r.attained,r.total,r.attainmentRate]),
     ];
     const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
     const a=document.createElement('a');

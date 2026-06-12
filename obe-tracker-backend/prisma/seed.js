@@ -465,15 +465,20 @@ async function main() {
   for (const [id, firstName, lastName] of studentList) {
     // email = studentId@bup.edu.bd, password = studentId
     const stuPwHash = await bcrypt.hash(id, 10);
+    // Section A = odd last digits, Section B = even last digits
+    const lastDigit = parseInt(id.slice(-1), 10);
+    const section = (lastDigit % 2 !== 0) ? 'A' : 'B';
+
     const stu = await prisma.user.upsert({
       where: { email: `${id}@bup.edu.bd` },
-      update: { passwordHash: stuPwHash, institutionalId: id },
+      update: { passwordHash: stuPwHash, institutionalId: id, section },
       create: {
         email: `${id}@bup.edu.bd`,
         passwordHash: stuPwHash,
         role: 'STUDENT',
         firstName, lastName,
         institutionalId: id,
+        section,
         institutionId: institution.id,
       },
     });

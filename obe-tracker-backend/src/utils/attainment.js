@@ -23,6 +23,7 @@ function computeCOAttainment(studentId, co, assessments) {
 
   let totalObtained = 0;
   let totalPossible = 0;
+  let totalAttainmentMark = 0; // sum of per-assessment attainment marks
   let hasMark = false;
 
   for (const a of linked) {
@@ -31,19 +32,22 @@ function computeCOAttainment(studentId, co, assessments) {
     hasMark = true;
     totalObtained += mark.marksObtained;
     totalPossible += a.totalMarks;
+    // Use faculty-set attainment mark (stored in weight field) or default to 60%
+    const aAttainMark = a.weight > 0 ? a.weight : Math.floor(a.totalMarks * CO_THRESHOLD_PCT);
+    totalAttainmentMark += aAttainMark;
   }
 
   if (!hasMark || totalPossible === 0) return null;
 
-  const attainmentMark = totalPossible * CO_THRESHOLD_PCT; // the minimum marks needed
-  const attained = totalObtained >= attainmentMark;
+  // CO achieved if student's total >= sum of attainment marks across all linked assessments
+  const attained = totalObtained >= totalAttainmentMark;
   const percentage = (totalObtained / totalPossible) * 100;
 
   return {
     percentage,
     totalObtained,
     totalPossible,
-    attainmentMark,
+    attainmentMark: totalAttainmentMark,
     attained,
     level: attained ? 'L3' : 'L0',
   };

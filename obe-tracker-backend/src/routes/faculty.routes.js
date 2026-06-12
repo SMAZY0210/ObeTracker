@@ -21,5 +21,8 @@ router.get('/assessments/:assessmentId/marks', c.getMarks);
 router.post('/assessments/:assessmentId/marks', c.saveMarks);
 
 router.get('/courses/:courseId/attainment', c.getCourseAttainment);
+router.get('/courses/:courseId/students', c.getCourseStudents);
+router.get('/courses/:courseId/students/:studentId/attainment', c.getStudentAttainment);
+router.put('/courses/:courseId/assessments/:assessmentId/attainment-mark', c.updateAssessmentAttainmentMark);
 
 module.exports = router;

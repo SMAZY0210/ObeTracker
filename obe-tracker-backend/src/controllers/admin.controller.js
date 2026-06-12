@@ -189,7 +189,7 @@ const assignFaculty = async (req, res, next) => {
 // ── User Management ──────────────────────────────────────────
 const getUsers = async (req, res, next) => {
   try {
-    const { role, isActive, search, batchYear } = req.query;
+    const { role, isActive, search, batchYear, section } = req.query;
 
     const users = await prisma.user.findMany({
       where: {
@@ -202,6 +202,7 @@ const getUsers = async (req, res, next) => {
         ...(batchYear && {
           institutionalId: { startsWith: batchYear.toString().slice(-2) },
         }),
+        ...(section && { section }),
         ...(search && {
           OR: [
             { email: { contains: search, mode: 'insensitive' } },
@@ -213,7 +214,7 @@ const getUsers = async (req, res, next) => {
       },
       select: {
         id: true, email: true, role: true, firstName: true, lastName: true,
-        institutionalId: true, isActive: true, lastLoginAt: true, createdAt: true,
+        institutionalId: true, section: true, isActive: true, lastLoginAt: true, createdAt: true,
       },
       orderBy: { institutionalId: 'asc' },
     });
@@ -223,7 +224,7 @@ const getUsers = async (req, res, next) => {
 
 const createUser = async (req, res, next) => {
   try {
-    const { email, role, firstName, lastName, institutionalId, password } = req.body;
+    const { email, role, firstName, lastName, institutionalId, section, password } = req.body;
     if (!email || !role || !firstName || !lastName) {
       return res.status(400).json({ status: 'error', error: 'email, role, firstName and lastName are required' });
     }
@@ -238,6 +239,7 @@ const createUser = async (req, res, next) => {
       data: {
         email: email.toLowerCase(), role, firstName, lastName,
         institutionalId: institutionalId || null,
+        section: section || null,
         passwordHash, institutionId: req.user.institutionId,
       },
       select: { id: true, email: true, role: true, firstName: true, lastName: true },
@@ -249,10 +251,10 @@ const createUser = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firstName, lastName, institutionalId, isActive } = req.body;
+    const { firstName, lastName, institutionalId, section, isActive } = req.body;
     const user = await prisma.user.update({
       where: { id },
-      data: { firstName, lastName, institutionalId, isActive },
+      data: { firstName, lastName, institutionalId, section, isActive },
       select: { id: true, email: true, role: true, firstName: true, lastName: true, isActive: true },
     });
     res.json({ status: 'success', data: user });
@@ -457,6 +459,7 @@ const bulkCreateUsers = async (req, res, next) => {
             firstName: u.firstName.trim(),
             lastName: u.lastName.trim(),
             institutionalId: u.institutionalId?.trim() || null,
+            section: u.section?.trim() || null,
           },
         });
         results.created++;
@@ -468,6 +471,47 @@ const bulkCreateUsers = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const getStudentAttainmentAdmin = async (req, res, next) => {
+  try {
+    const { studentId } = req.params;
+    const { courseId } = req.query;
+
+    const student = await prisma.user.findUnique({
+      where: { id: studentId },
+      select: { id: true, firstName: true, lastName: true, institutionalId: true, email: true, section: true },
+    });
+    if (!student) return res.status(404).json({ status: 'error', error: 'Student not found' });
+
+    const coWhere = { studentId, ...(courseId && { courseId }) };
+    const poWhere = { studentId, ...(courseId && { courseId }) };
+
+    const [coAttainments, poAttainments, enrolments] = await Promise.all([
+      prisma.coAttainment.findMany({
+        where: coWhere,
+        include: {
+          courseOutcome: { select: { code: true, title: true } },
+        },
+      }),
+      prisma.poAttainment.findMany({
+        where: poWhere,
+        include: { programOutcome: { select: { code: true, title: true } } },
+      }),
+      prisma.enrolment.findMany({
+        where: { studentId },
+        include: { course: { select: { id: true, code: true, name: true } } },
+      }),
+    ]);
+
+    // Group by course
+    const courseMap = {};
+    for (const e of enrolments) {
+      courseMap[e.course.id] = e.course;
+    }
+
+    res.json({ status: 'success', data: { student, coAttainments, poAttainments, courses: Object.values(courseMap) } });
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   getDepartments, createDepartment, updateDepartment, deleteDepartment,
   getPrograms, createProgram, updateProgram, deleteProgram,
@@ -476,6 +520,8 @@ module.exports = {
   getUsers, createUser, updateUser, bulkCreateUsers,
   getThresholds, upsertThresholds,
   getAttainmentReport,
+  getStudentAttainmentAdmin,
   getProgramOutcomes, createProgramOutcome, updateProgramOutcome, deleteProgramOutcome,
   getDashboard,
 };
+

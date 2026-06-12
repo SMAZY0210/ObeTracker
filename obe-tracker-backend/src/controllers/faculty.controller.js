@@ -181,7 +181,7 @@ const getMarks = async (req, res, next) => {
 
     const students = await prisma.user.findMany({
       where: { id: { in: studentIds } },
-      select: { id: true, firstName: true, lastName: true, institutionalId: true },
+      select: { id: true, firstName: true, lastName: true, institutionalId: true, section: true },
       orderBy: { institutionalId: 'asc' },
     });
 
@@ -348,6 +348,99 @@ async function assertFacultyOwns(user, courseId) {
   if (!a) { const e = new Error('Not assigned to this course'); e.status = 403; throw e; }
 }
 
+const getCourseStudents = async (req, res, next) => {
+  try {
+    const { courseId } = req.params;
+    const enrolments = await prisma.enrolment.findMany({
+      where: { courseId },
+      select: { studentId: true },
+    });
+    const studentIds = enrolments.map(e => e.studentId);
+    const students = await prisma.user.findMany({
+      where: { id: { in: studentIds } },
+      select: {
+        id: true, firstName: true, lastName: true,
+        institutionalId: true, section: true,
+      },
+      orderBy: { institutionalId: 'asc' },
+    });
+    res.json({ status: 'success', data: students });
+  } catch (err) { next(err); }
+};
+
+const getStudentAttainment = async (req, res, next) => {
+  try {
+    const { courseId, studentId } = req.params;
+    await assertFacultyOwns(req.user, courseId);
+
+    const [student, coAttainments, poAttainments, assessments] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: studentId },
+        select: { id: true, firstName: true, lastName: true, institutionalId: true, section: true },
+      }),
+      prisma.coAttainment.findMany({
+        where: { courseId, studentId },
+        include: { courseOutcome: { select: { code: true, title: true } } },
+      }),
+      prisma.poAttainment.findMany({
+        where: { courseId, studentId },
+        include: { programOutcome: { select: { code: true, title: true } } },
+      }),
+      prisma.assessment.findMany({
+        where: { courseId, deletedAt: null },
+        include: {
+          assessmentCOs: { include: { courseOutcome: { select: { id: true, code: true } } } },
+          marks: { where: { studentId } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    if (!student) return res.status(404).json({ status: 'error', error: 'Student not found' });
+
+    const assessmentDetail = assessments.map(a => {
+      const mark = a.marks[0];
+      const attainmentMark = a.weight > 0 ? a.weight : Math.floor(a.totalMarks * 0.6);
+      return {
+        id: a.id, title: a.title, type: a.type,
+        totalMarks: a.totalMarks, attainmentMark,
+        marksObtained: mark ? mark.marksObtained : null,
+        passed: mark ? mark.marksObtained >= attainmentMark : null,
+        coCodes: a.assessmentCOs.map(ac => ac.courseOutcome.code),
+      };
+    });
+
+    const numSort = (a, b) => {
+      const nA = parseInt((a.code || '').replace(/[^0-9]+/g, ''), 10);
+      const nB = parseInt((b.code || '').replace(/[^0-9]+/g, ''), 10);
+      return isNaN(nA) || isNaN(nB) ? 0 : nA - nB;
+    };
+    coAttainments.sort((a, b) => numSort(a.courseOutcome, b.courseOutcome));
+    poAttainments.sort((a, b) => numSort(a.programOutcome, b.programOutcome));
+
+    res.json({ status: 'success', data: { student, coAttainments, poAttainments, assessmentDetail } });
+  } catch (err) { next(err); }
+};
+
+const updateAssessmentAttainmentMark = async (req, res, next) => {
+  try {
+    const { courseId, assessmentId } = req.params;
+    await assertFacultyOwns(req.user, courseId);
+    const { attainmentMark } = req.body;
+    const assessment = await prisma.assessment.findUnique({ where: { id: assessmentId } });
+    if (!assessment) return res.status(404).json({ status: 'error', error: 'Not found' });
+    if (parseFloat(attainmentMark) > assessment.totalMarks) {
+      return res.status(400).json({ status: 'error', error: 'Attainment mark cannot exceed total marks' });
+    }
+    await prisma.assessment.update({
+      where: { id: assessmentId },
+      data: { weight: parseFloat(attainmentMark) },
+    });
+    await recomputeAttainmentForCourse(courseId, null, req.user.institutionId);
+    res.json({ status: 'success', data: { message: 'Attainment mark updated' } });
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   getMyCourses,
   getCourseOutcomes, createCourseOutcome, deleteCourseOutcome,
@@ -355,5 +448,8 @@ module.exports = {
   getAssessments, createAssessment, deleteAssessment,
   getMarks, saveMarks,
   getCourseAttainment,
+  getCourseStudents,
+  getStudentAttainment,
+  updateAssessmentAttainmentMark,
   recomputeAttainmentForCourse,
 };
