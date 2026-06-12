@@ -1,4 +1,5 @@
-require('dotenv').config();
+// Load .env locally; on Vercel, env vars are set in the dashboard
+try { require('dotenv').config(); } catch(e) {}
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -33,7 +34,15 @@ app.use('/api/v1/reports', require('./routes/report.routes'));
 app.use('/api/v1/bulk',    require('./routes/bulk.routes'));
 
 // ── Health ────────────────────────────────────────────────────
-app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/api/v1/health', async (req, res) => {
+  try {
+    const prisma = require('./prisma');
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() });
+  } catch(e) {
+    res.status(500).json({ status: 'error', db: 'disconnected', error: e.message });
+  }
+});
 
 // ── 404 ───────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ status: 'error', error: `Route ${req.method} ${req.path} not found` }));

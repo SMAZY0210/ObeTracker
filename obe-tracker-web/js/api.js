@@ -1,4 +1,7 @@
-const API_BASE = 'http://localhost:3000/api/v1';
+// Use Vercel backend in production, localhost for local dev
+const API_BASE = (window.location.hostname === 'localhost' || window.location.protocol === 'file:')
+  ? 'http://localhost:3000/api/v1'
+  : 'https://obe-tracker.vercel.app/api/v1';
 
 const Api = {
   _token: null,
