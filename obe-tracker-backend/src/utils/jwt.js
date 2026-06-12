@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const signToken = (payload) => {
-  const jti = uuidv4();
+  // Use Node built-in crypto instead of uuid package (uuid v9+ is ESM-only)
+  const jti = crypto.randomUUID();
   return {
     token: jwt.sign(
       { ...payload, jti },
