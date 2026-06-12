@@ -31,7 +31,6 @@ app.use('/api/v1/admin',   require('./routes/admin.routes'));
 app.use('/api/v1/faculty', require('./routes/faculty.routes'));
 app.use('/api/v1/student', require('./routes/student.routes'));
 app.use('/api/v1/reports', require('./routes/report.routes'));
-app.use('/api/v1/bulk',    require('./routes/bulk.routes'));
 
 // ── Health ────────────────────────────────────────────────────
 app.get('/api/v1/health', async (req, res) => {
