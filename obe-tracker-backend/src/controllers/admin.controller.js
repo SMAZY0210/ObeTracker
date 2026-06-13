@@ -538,12 +538,80 @@ const getStudentAttainmentAdmin = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ── Enrolments ───────────────────────────────────────────────
+const getEnrolments = async (req, res, next) => {
+  try {
+    const { courseId } = req.query;
+    if (!courseId) return res.status(400).json({ status: 'error', error: 'courseId required' });
+    const enrolments = await prisma.enrolment.findMany({
+      where: { courseId },
+      include: {
+        student: { select: { id: true, firstName: true, lastName: true, institutionalId: true, section: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json({ status: 'success', data: enrolments });
+  } catch (err) { next(err); }
+};
+
+const enrolStudents = async (req, res, next) => {
+  try {
+    const { courseId, studentIds, batchYear, section } = req.body;
+    if (!courseId) return res.status(400).json({ status: 'error', error: 'courseId required' });
+
+    // Get course to find programId
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      select: { programId: true, program: { select: { departmentId: true } } },
+    });
+    if (!course) return res.status(404).json({ status: 'error', error: 'Course not found' });
+
+    let students = [];
+    if (studentIds && studentIds.length > 0) {
+      // Individual students
+      students = await prisma.user.findMany({
+        where: { id: { in: studentIds }, role: 'STUDENT', deletedAt: null },
+        select: { id: true },
+      });
+    } else {
+      // Batch enrolment
+      const where = { role: 'STUDENT', deletedAt: null };
+      if (batchYear) where.institutionalId = { startsWith: String(batchYear).slice(-2) };
+      if (section) where.section = section;
+      students = await prisma.user.findMany({ where, select: { id: true } });
+    }
+
+    if (!students.length) return res.status(400).json({ status: 'error', error: 'No students found for the given criteria' });
+
+    // Upsert enrolments (skip already enrolled)
+    let enrolled = 0, skipped = 0;
+    for (const stu of students) {
+      const existing = await prisma.enrolment.findUnique({
+        where: { studentId_courseId: { studentId: stu.id, courseId } },
+      });
+      if (existing) { skipped++; continue; }
+      await prisma.enrolment.create({ data: { studentId: stu.id, courseId, programId: course.programId } });
+      enrolled++;
+    }
+    res.json({ status: 'success', data: { enrolled, skipped, total: students.length } });
+  } catch (err) { next(err); }
+};
+
+const removeEnrolment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await prisma.enrolment.delete({ where: { id } });
+    res.json({ status: 'success' });
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   getDepartments, createDepartment, updateDepartment, deleteDepartment,
   getPrograms, createProgram, updateProgram, deleteProgram,
   getSessions, createSession, updateSession,
   getCourses, createCourse, updateCourse, deleteCourse, assignFaculty,
   getUsers, createUser, updateUser, bulkCreateUsers,
+  getEnrolments, enrolStudents, removeEnrolment,
   getThresholds, upsertThresholds,
   getAttainmentReport,
   getStudentAttainmentAdmin,

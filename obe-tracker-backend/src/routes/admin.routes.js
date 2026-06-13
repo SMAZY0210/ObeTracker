@@ -49,4 +49,9 @@ router.post('/users/bulk', c.bulkCreateUsers);
 router.get('/students/:studentId/attainment', c.getStudentAttainmentAdmin);
 router.put('/thresholds', c.upsertThresholds);
 
+// Enrolments
+router.get('/enrolments', c.getEnrolments);
+router.post('/enrolments', c.enrolStudents);
+router.delete('/enrolments/:id', c.removeEnrolment);
+
 module.exports = router;
