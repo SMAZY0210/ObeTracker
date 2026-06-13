@@ -69,6 +69,7 @@ const Api = {
   getCourseOutcomes(courseId)         { return this.get('/faculty/courses/' + courseId + '/outcomes'); },
   createCO(courseId, d)               { return this.post('/faculty/courses/' + courseId + '/outcomes', d); },
   deleteCO(courseId, coId)            { return this.delete('/faculty/courses/' + courseId + '/outcomes/' + coId); },
+  updateCO(courseId, coId, d)         { return this.put('/faculty/courses/' + courseId + '/outcomes/' + coId, d); },
   getMapping(courseId)                { return this.get('/faculty/courses/' + courseId + '/mapping'); },
   saveMapping(courseId, mappings)     { return this.post('/faculty/courses/' + courseId + '/mapping', { mappings }); },
   getAssessments(courseId)            { return this.get('/faculty/courses/' + courseId + '/assessments'); },

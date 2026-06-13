@@ -8,6 +8,7 @@ router.get('/courses', c.getMyCourses);
 
 router.get('/courses/:courseId/outcomes', c.getCourseOutcomes);
 router.post('/courses/:courseId/outcomes', c.createCourseOutcome);
+router.put('/courses/:courseId/outcomes/:id', c.updateCourseOutcome);
 router.delete('/courses/:courseId/outcomes/:id', c.deleteCourseOutcome);
 
 router.get('/courses/:courseId/mapping', c.getMapping);
