@@ -188,6 +188,13 @@ const AdminView={
   },
 
   async students(){
+    // Load departments for the filter dropdown
+    let deptOptions = '<option value="">All Departments</option>';
+    try {
+      const depts = await Api.getDepartments();
+      deptOptions += depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+    } catch(_) {}
+
     document.getElementById('view-root').innerHTML=`
       <div class="page-hd">
         <div class="page-hd-left"><h1>Students</h1><div class="hd-sub">Student accounts</div></div>
@@ -196,16 +203,19 @@ const AdminView={
           <button class="btn btn-primary" onclick="AdminView._addUser('STUDENT')">${ico('add_user')} Add Student</button>
         </div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-        <div class="search-wrap"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')" style="min-width:220px"></div>
-        <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:140px">
+      <div class="filter-bar" style="margin-bottom:12px">
+        <div class="search-wrap" style="flex:2"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')"></div>
+        <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:130px">
           <option value="">All Batches</option>
           <option value="2020">Batch 2020</option><option value="2021">Batch 2021</option>
           <option value="2022">Batch 2022</option><option value="2023">Batch 2023</option>
           <option value="2024">Batch 2024</option><option value="2025">Batch 2025</option>
           <option value="2026">Batch 2026</option>
         </select>
-        <select id="uf-section-s" onchange="AdminView._loadStudents()" style="min-width:130px">
+        <select id="uf-dept-s" onchange="AdminView._loadStudents()" style="min-width:180px">
+          ${deptOptions}
+        </select>
+        <select id="uf-section-s" onchange="AdminView._loadStudents()" style="min-width:120px">
           <option value="">All Sections</option>
           <option value="A">Section A</option>
           <option value="B">Section B</option>
@@ -214,22 +224,33 @@ const AdminView={
       <div class="tbl-wrap"><table><thead><tr>
         <th>Name</th><th>Student ID</th><th>Batch</th><th>Section</th>
         <th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Attainment</th>
-      </tr></thead><tbody id="utb-students">${loading()}</tbody></table></div>`;
-    AdminView._loadStudents();
+      </tr></thead><tbody id="utb-students">
+        <tr><td colspan="7" class="td-load text-muted">Select a batch or department to view students.</td></tr>
+      </tbody></table></div>`;
   },
 
   async _loadStudents(){
     const el=document.getElementById('utb-students'); if(!el) return;
+    const batch=document.getElementById('uf-batch-s')?.value;
+    const dept=document.getElementById('uf-dept-s')?.value;
+    const section=document.getElementById('uf-section-s')?.value;
+
+    // Don't load until at least one filter is chosen
+    if(!batch && !dept && !section){
+      el.innerHTML='<tr><td colspan="7" class="td-load text-muted">Select a batch or department to view students.</td></tr>';
+      AdminView._ul_students=[];
+      return;
+    }
     el.innerHTML=tdLoad(7);
     try{
       const params={role:'STUDENT'};
-      const batch=document.getElementById('uf-batch-s')?.value;
-      const section=document.getElementById('uf-section-s')?.value;
       if(batch) params.batchYear=batch;
       if(section) params.section=section;
-      const l=await Api.getUsers(params);
-      AdminView._ul_students=l; AdminView._renderTab('students',l);
-    }catch(e){const el2=document.getElementById('utb-students');if(el2)el2.innerHTML=tdEmpty(e.message,7);}
+      // dept filtering is client-side after fetch (backend filters by batchYear/section only)
+      let l=await Api.getUsers(params);
+      AdminView._ul_students=l;
+      AdminView._renderTab('students',l);
+    }catch(e){if(el)el.innerHTML=tdEmpty(e.message,7);}
   },
 
   _filterTab(tab){
