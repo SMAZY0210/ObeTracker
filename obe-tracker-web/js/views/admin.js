@@ -146,85 +146,76 @@ const AdminView={
     try{await Api.assignFaculty(courseId,ids);toast('Faculty assigned');closeModal();this._loadC()}catch(e){toast(e.message,'err')}},
 
   // ── Users ──────────────────────────────────────────────────
-  async users(){
+  async admins(){
     document.getElementById('view-root').innerHTML=`
       <div class="page-hd">
-        <div class="page-hd-left"><h1>Users</h1><div class="hd-sub">Manage admins, faculty and students</div></div>
+        <div class="page-hd-left"><h1>Admins</h1><div class="hd-sub">System administrator accounts</div></div>
         <div class="page-hd-actions">
-          <button class="btn btn-secondary" onclick="AdminView._bulkUpload()">${ico('plus')} Bulk Upload</button>
-          <button class="btn btn-primary" onclick="AdminView._addUser()">${ico('add_user')} Add User</button>
+          <button class="btn btn-primary" onclick="AdminView._addUser('ADMIN')">${ico('add_user')} Add Admin</button>
         </div>
       </div>
-      <div id="user-tabs">
-        <div class="tab-bar">
-          <button class="tab-btn active" data-tab="tab-admin">Admins</button>
-          <button class="tab-btn" data-tab="tab-faculty">Faculty</button>
-          <button class="tab-btn" data-tab="tab-students">Students</button>
-        </div>
-
-        <div class="tab-pane active" id="tab-admin">
-          <div style="margin-top:14px;margin-bottom:10px">
-            <div class="search-wrap"><input id="uq-admin" placeholder="Search name or email..." oninput="AdminView._filterTab('admin')" style="min-width:260px"></div>
-          </div>
-          <div class="tbl-wrap"><table><thead><tr>
-            <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
-          </tr></thead><tbody id="utb-admin">${tdLoad(4)}</tbody></table></div>
-        </div>
-
-        <div class="tab-pane" id="tab-faculty">
-          <div style="margin-top:14px;margin-bottom:10px">
-            <div class="search-wrap"><input id="uq-faculty" placeholder="Search name or email..." oninput="AdminView._filterTab('faculty')" style="min-width:260px"></div>
-          </div>
-          <div class="tbl-wrap"><table><thead><tr>
-            <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
-          </tr></thead><tbody id="utb-faculty">${tdLoad(4)}</tbody></table></div>
-        </div>
-
-        <div class="tab-pane" id="tab-students">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px;margin-bottom:10px">
-            <div class="search-wrap"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')" style="min-width:220px"></div>
-            <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:140px">
-              <option value="">All Batches</option>
-              <option value="2020">Batch 2020</option><option value="2021">Batch 2021</option>
-              <option value="2022">Batch 2022</option><option value="2023">Batch 2023</option>
-              <option value="2024">Batch 2024</option><option value="2025">Batch 2025</option>
-              <option value="2026">Batch 2026</option>
-            </select>
-            <select id="uf-section-s" onchange="AdminView._loadStudents()" style="min-width:130px">
-              <option value="">All Sections</option>
-              <option value="A">Section A</option>
-              <option value="B">Section B</option>
-            </select>
-          </div>
-          <div class="tbl-wrap"><table><thead><tr>
-            <th>Name</th><th>Student ID</th><th>Batch</th><th>Section</th>
-            <th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Attainment</th>
-          </tr></thead><tbody id="utb-students">${tdLoad(7)}</tbody></table></div>
-        </div>
-      </div>`;
-
-    initTabs('user-tabs');
-    AdminView._loadAdmins();
-    AdminView._loadFaculty();
-    AdminView._loadStudents();
-  },
-
-  async _loadAdmins(){
-    const el=document.getElementById('utb-admin'); if(!el) return;
-    el.innerHTML=tdLoad(4);
+      <div style="margin-bottom:12px">
+        <div class="search-wrap"><input id="uq-admin" placeholder="Search name or email..." oninput="AdminView._filterTab('admin')" style="min-width:280px"></div>
+      </div>
+      <div class="tbl-wrap"><table><thead><tr>
+        <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
+      </tr></thead><tbody id="utb-admin">${loading()}</tbody></table></div>`;
     try{
       const l=await Api.getUsers({role:'ADMIN'});
       AdminView._ul_admin=l; AdminView._renderTab('admin',l);
-    }catch(e){el.innerHTML=tdEmpty(e.message,4);}
+    }catch(e){document.getElementById('utb-admin').innerHTML=tdEmpty(e.message,4);}
   },
 
-  async _loadFaculty(){
-    const el=document.getElementById('utb-faculty'); if(!el) return;
-    el.innerHTML=tdLoad(4);
+  async faculty(){
+    document.getElementById('view-root').innerHTML=`
+      <div class="page-hd">
+        <div class="page-hd-left"><h1>Faculty</h1><div class="hd-sub">Faculty member accounts</div></div>
+        <div class="page-hd-actions">
+          <button class="btn btn-secondary" onclick="AdminView._bulkUpload()">${ico('plus')} Bulk Upload</button>
+          <button class="btn btn-primary" onclick="AdminView._addUser('FACULTY')">${ico('add_user')} Add Faculty</button>
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="search-wrap"><input id="uq-faculty" placeholder="Search name or email..." oninput="AdminView._filterTab('faculty')" style="min-width:280px"></div>
+      </div>
+      <div class="tbl-wrap"><table><thead><tr>
+        <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
+      </tr></thead><tbody id="utb-faculty">${loading()}</tbody></table></div>`;
     try{
       const l=await Api.getUsers({role:'FACULTY'});
       AdminView._ul_faculty=l; AdminView._renderTab('faculty',l);
-    }catch(e){el.innerHTML=tdEmpty(e.message,4);}
+    }catch(e){document.getElementById('utb-faculty').innerHTML=tdEmpty(e.message,4);}
+  },
+
+  async students(){
+    document.getElementById('view-root').innerHTML=`
+      <div class="page-hd">
+        <div class="page-hd-left"><h1>Students</h1><div class="hd-sub">Student accounts</div></div>
+        <div class="page-hd-actions">
+          <button class="btn btn-secondary" onclick="AdminView._bulkUpload()">${ico('plus')} Bulk Upload</button>
+          <button class="btn btn-primary" onclick="AdminView._addUser('STUDENT')">${ico('add_user')} Add Student</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <div class="search-wrap"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')" style="min-width:220px"></div>
+        <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:140px">
+          <option value="">All Batches</option>
+          <option value="2020">Batch 2020</option><option value="2021">Batch 2021</option>
+          <option value="2022">Batch 2022</option><option value="2023">Batch 2023</option>
+          <option value="2024">Batch 2024</option><option value="2025">Batch 2025</option>
+          <option value="2026">Batch 2026</option>
+        </select>
+        <select id="uf-section-s" onchange="AdminView._loadStudents()" style="min-width:130px">
+          <option value="">All Sections</option>
+          <option value="A">Section A</option>
+          <option value="B">Section B</option>
+        </select>
+      </div>
+      <div class="tbl-wrap"><table><thead><tr>
+        <th>Name</th><th>Student ID</th><th>Batch</th><th>Section</th>
+        <th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Attainment</th>
+      </tr></thead><tbody id="utb-students">${loading()}</tbody></table></div>`;
+    AdminView._loadStudents();
   },
 
   async _loadStudents(){
@@ -238,7 +229,7 @@ const AdminView={
       if(section) params.section=section;
       const l=await Api.getUsers(params);
       AdminView._ul_students=l; AdminView._renderTab('students',l);
-    }catch(e){el.innerHTML=tdEmpty(e.message,7);}
+    }catch(e){const el2=document.getElementById('utb-students');if(el2)el2.innerHTML=tdEmpty(e.message,7);}
   },
 
   _filterTab(tab){
@@ -250,7 +241,7 @@ const AdminView={
   },
 
   _renderTab(tab,list){
-    const cols = (tab==='students') ? 7 : 4;
+    const cols=(tab==='students')?7:4;
     const el=document.getElementById('utb-'+tab); if(!el) return;
     if(!list.length){el.innerHTML=tdEmpty('No users found',cols);return;}
     if(tab==='admin'||tab==='faculty'){
@@ -281,8 +272,9 @@ const AdminView={
     }
   },
 
-  // kept for bulk upload reload compatibility
-  _loadU(){ AdminView._loadAdmins(); AdminView._loadFaculty(); AdminView._loadStudents(); },
+  // legacy compat
+  users(){ AdminView.admins(); },
+  _loadU(){ },
 
   async outcomes(){
     const progs = await Api.getPrograms();
