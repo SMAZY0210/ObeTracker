@@ -942,8 +942,7 @@ const FacultyView = {
       ['','','','',''],
       ...(d.coAttainments||[]).map(r=>['CO',r.courseOutcome.code,r.courseOutcome.title,r.level==='L3'?'Attained':'Not Attained',r.percentage.toFixed(1)]),
     ];
-    const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('
-');
+    const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
     a.download='attainment_'+(stu.institutionalId||'student')+'.csv'; a.click();
