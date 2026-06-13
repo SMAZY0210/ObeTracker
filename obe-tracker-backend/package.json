@@ -34,7 +34,7 @@
     "uuid": "8.3.2"
   },
   "devDependencies": {
-    "prisma": "5.22.0"
+    "prisma": "^5.22.0"
   },
   "engines": {
     "node": ">=18.x"
