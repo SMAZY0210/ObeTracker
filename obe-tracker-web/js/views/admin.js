@@ -115,6 +115,7 @@ const AdminView={
         <td class="td-r">
           <div style="display:inline-flex;gap:6px">
             <button class="btn btn-secondary btn-xs" onclick="AdminView._assignFac('${c.id}','${c.code}')">${ico('add_user',13)} Assign</button>
+            <button class="btn btn-secondary btn-xs" onclick="AdminView._openEnrol('${c.id}','${c.code} - ${c.name.replace(/'/g,"&#39;")}')">${ico('users',13)} Enrol</button>
             <button class="icon-btn danger" onclick="AdminView._delC('${c.id}','${sn}')" title="Delete course">${ico('trash',13)}</button>
           </div>
         </td></tr>`;
@@ -132,6 +133,170 @@ const AdminView={
     if(!d.name||!d.code)return toast('Name and code required','err');
     try{await Api.createCourse(d);toast('Course added');closeModal();this._loadC()}catch(e){toast(e.message,'err')}},
   async _delC(id,name){if(!confirm(`Delete "${name}"?`))return;try{await Api.deleteCourse(id);toast('Deleted');this._loadC()}catch(e){toast(e.message,'err')}},
+  async _openEnrol(courseId, courseLabel) {
+    showModal(`Enrol Students — ${courseLabel}`, `
+      <div style="border-bottom:1px solid var(--border);margin-bottom:16px;display:flex;gap:0">
+        <button class="tab-btn active" id="en-tab-batch" style="border-radius:0" onclick="AdminView._enrolTab('batch')">By Batch</button>
+        <button class="tab-btn" id="en-tab-indiv" style="border-radius:0" onclick="AdminView._enrolTab('indiv')">Individual</button>
+      </div>
+
+      <!-- Batch pane -->
+      <div id="en-pane-batch">
+        <div class="form-row fr2 mb3">
+          <div class="fg"><label>Batch / Session</label>
+            <select id="en-batch" style="width:100%">
+              <option value="">Select Batch</option>
+            </select>
+          </div>
+          <div class="fg"><label>Section</label>
+            <select id="en-section" style="width:100%">
+              <option value="">All Sections</option>
+              <option value="A">Section A</option>
+              <option value="B">Section B</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="AdminView._enrolBatchModal('${courseId}')">Enrol Batch</button>
+      </div>
+
+      <!-- Individual pane -->
+      <div id="en-pane-indiv" style="display:none">
+        <div class="fg mb3">
+          <input id="en-search" placeholder="Search name or student ID..." oninput="AdminView._enrolSearchModal()" style="width:100%">
+        </div>
+        <div id="en-search-results" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px">
+          <div class="text-muted text-sm" style="padding:12px">Type to search</div>
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="AdminView._enrolSelectedModal('${courseId}')">Enrol Selected</button>
+      </div>
+
+      <div id="en-modal-result" class="mt3"></div>
+
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+        <div class="flex-between mb2">
+          <span class="sec-title" style="font-size:13px">Currently Enrolled</span>
+          <span id="en-modal-count" class="badge bg-blue">...</span>
+        </div>
+        <div style="max-height:180px;overflow-y:auto">
+          <table style="width:100%;font-size:13px;border-collapse:collapse">
+            <thead><tr style="border-bottom:1px solid var(--border)">
+              <th style="padding:6px 8px;text-align:left">Name</th>
+              <th style="padding:6px 8px;text-align:left">ID</th>
+              <th style="padding:6px 8px;text-align:left">Section</th>
+              <th style="padding:6px 8px;text-align:right">Remove</th>
+            </tr></thead>
+            <tbody id="en-modal-enrolled">
+              <tr><td colspan="4" style="padding:12px;text-align:center;color:var(--text3)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`, null, true);
+
+    AdminView._enrolCourseId = courseId;
+    AdminView._enrolSelectedIds = new Set();
+
+    // Load sessions for batch dropdown
+    try {
+      const sessions = await Api.getSessions();
+      const sel = document.getElementById('en-batch');
+      if(sel) sel.innerHTML = '<option value="">Select Batch</option>' +
+        sessions.map(s=>`<option value="${s.name.replace(/\D+/,'')}">${s.name}</option>`).join('');
+    } catch(_) {}
+
+    await AdminView._enrolRefreshModal();
+  },
+
+  _enrolTab(tab) {
+    document.getElementById('en-pane-batch').style.display = tab==='batch' ? '' : 'none';
+    document.getElementById('en-pane-indiv').style.display = tab==='indiv'  ? '' : 'none';
+    document.getElementById('en-tab-batch').classList.toggle('active', tab==='batch');
+    document.getElementById('en-tab-indiv').classList.toggle('active',  tab==='indiv');
+  },
+
+  async _enrolRefreshModal() {
+    const courseId = AdminView._enrolCourseId;
+    if(!courseId) return;
+    try {
+      const list = await Api.getEnrolments(courseId);
+      const countEl = document.getElementById('en-modal-count');
+      const tbody = document.getElementById('en-modal-enrolled');
+      if(countEl) countEl.textContent = list.length + ' student' + (list.length===1?'':'s');
+      if(!tbody) return;
+      if(!list.length) { tbody.innerHTML='<tr><td colspan="4" style="padding:12px;text-align:center;color:var(--text3)">No students enrolled yet</td></tr>'; return; }
+      tbody.innerHTML = list.map(e=>`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 8px">${e.student.firstName} ${e.student.lastName}</td>
+        <td style="padding:6px 8px;font-family:monospace;font-size:12px">${e.student.institutionalId||'--'}</td>
+        <td style="padding:6px 8px">${e.student.section?'Section '+e.student.section:'--'}</td>
+        <td style="padding:6px 8px;text-align:right"><button class="icon-btn danger" onclick="AdminView._enrolRemoveModal('${e.id}')">${ico('trash',13)}</button></td>
+      </tr>`).join('');
+    } catch(e) {
+      const tbody = document.getElementById('en-modal-enrolled');
+      if(tbody) tbody.innerHTML=`<tr><td colspan="4" style="padding:12px;color:var(--red)">${e.message}</td></tr>`;
+    }
+  },
+
+  async _enrolBatchModal(courseId) {
+    const batchYear = document.getElementById('en-batch')?.value;
+    const section   = document.getElementById('en-section')?.value;
+    const resEl     = document.getElementById('en-modal-result');
+    resEl.innerHTML = `<div class="loading-box" style="padding:8px 0;justify-content:flex-start"><div class="spin"></div> Enrolling…</div>`;
+    try {
+      const r = await Api.enrolStudents({ courseId, batchYear, section });
+      resEl.innerHTML = `<div class="alert alert-success"><span class="alert-icon">✓</span>Enrolled ${r.enrolled} student(s). ${r.skipped} already enrolled.</div>`;
+      await AdminView._enrolRefreshModal();
+    } catch(e) { resEl.innerHTML=`<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
+  },
+
+  async _enrolSearchModal() {
+    const q = (document.getElementById('en-search')?.value||'').trim();
+    const el = document.getElementById('en-search-results');
+    if(!el) return;
+    if(q.length < 2) { el.innerHTML='<div class="text-muted text-sm" style="padding:12px">Type at least 2 characters</div>'; return; }
+    try {
+      const list = await Api.getUsers({role:'STUDENT', search:q});
+      if(!list.length) { el.innerHTML='<div class="text-muted text-sm" style="padding:12px">No students found</div>'; return; }
+      el.innerHTML = list.map(u=>`
+        <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border)">
+          <input type="checkbox" value="${u.id}" ${AdminView._enrolSelectedIds?.has(u.id)?'checked':''}
+            onchange="AdminView._enrolToggleModal('${u.id}',this.checked)">
+          <span class="fw7">${u.firstName} ${u.lastName}</span>
+          <span class="text-muted text-sm">${u.institutionalId||u.email}</span>
+        </label>`).join('');
+    } catch(e) { el.innerHTML=`<div class="text-muted text-sm" style="padding:12px">${e.message}</div>`; }
+  },
+
+  _enrolToggleModal(id, checked) {
+    if(!AdminView._enrolSelectedIds) AdminView._enrolSelectedIds = new Set();
+    if(checked) AdminView._enrolSelectedIds.add(id);
+    else AdminView._enrolSelectedIds.delete(id);
+  },
+
+  async _enrolSelectedModal(courseId) {
+    const ids = [...(AdminView._enrolSelectedIds||[])];
+    const resEl = document.getElementById('en-modal-result');
+    if(!ids.length) return toast('Select at least one student','err');
+    resEl.innerHTML = `<div class="loading-box" style="padding:8px 0;justify-content:flex-start"><div class="spin"></div> Enrolling…</div>`;
+    try {
+      const r = await Api.enrolStudents({ courseId, studentIds: ids });
+      resEl.innerHTML = `<div class="alert alert-success"><span class="alert-icon">✓</span>Enrolled ${r.enrolled} student(s). ${r.skipped} already enrolled.</div>`;
+      AdminView._enrolSelectedIds = new Set();
+      const searchEl = document.getElementById('en-search');
+      if(searchEl) searchEl.value='';
+      const resultsEl = document.getElementById('en-search-results');
+      if(resultsEl) resultsEl.innerHTML='<div class="text-muted text-sm" style="padding:12px">Type to search</div>';
+      await AdminView._enrolRefreshModal();
+    } catch(e) { resEl.innerHTML=`<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
+  },
+
+  async _enrolRemoveModal(id) {
+    if(!confirm('Remove this student from the course?')) return;
+    try {
+      await Api.removeEnrolment(id);
+      toast('Student removed');
+      await AdminView._enrolRefreshModal();
+    } catch(e) { toast(e.message,'err'); }
+  },
+
   async _assignFac(courseId,code){
     const users=await Api.getUsers({role:'FACULTY'});
     const c=(this._cl||[]).find(x=>x.id===courseId);
@@ -195,11 +360,13 @@ const AdminView={
   },
 
   async students(){
-    // Load departments for the filter dropdown
+    // Load departments and sessions for filter dropdowns
     let deptOptions = '<option value="">Select Department</option>';
+    let batchOptions = '<option value="">Select Batch</option>';
     try {
-      const depts = await Api.getDepartments();
+      const [depts, sessions] = await Promise.all([Api.getDepartments(), Api.getSessions()]);
       deptOptions += depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+      batchOptions += sessions.map(s=>`<option value="${s.name.replace(/\D+/,'')}">${s.name}</option>`).join('');
     } catch(_) {}
 
     document.getElementById('view-root').innerHTML=`
@@ -213,11 +380,7 @@ const AdminView={
       <div class="filter-bar" style="margin-bottom:12px">
         <div class="search-wrap" style="flex:2"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')"></div>
         <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:130px">
-          <option value="">Select Batch</option>
-          <option value="2020">Batch 2020</option><option value="2021">Batch 2021</option>
-          <option value="2022">Batch 2022</option><option value="2023">Batch 2023</option>
-          <option value="2024">Batch 2024</option><option value="2025">Batch 2025</option>
-          <option value="2026">Batch 2026</option>
+          ${batchOptions}
         </select>
         <select id="uf-dept-s" onchange="AdminView._loadStudents()" style="min-width:180px">
           ${deptOptions}
@@ -306,6 +469,213 @@ const AdminView={
 
   // legacy compat
   users(){ AdminView.admins(); },
+
+  async enrolment(){
+    document.getElementById('view-root').innerHTML=`
+      <div class="page-hd">
+        <div class="page-hd-left"><h1>Enrolment</h1><div class="hd-sub">Assign courses to batches or individual students</div></div>
+      </div>
+      <div class="card mb4"><div class="card-bd">
+        <div class="sec-title mb3">Select Course</div>
+        <div class="filter-bar" style="margin-bottom:0">
+          <div class="fg" style="flex:2;margin:0"><label>Session / Batch</label>
+            <select id="en-sess" onchange="AdminView._enrolLoadCourses()" style="width:100%">
+              <option value="">-- Select Session --</option>
+            </select>
+          </div>
+          <div class="fg" style="flex:3;margin:0"><label>Course</label>
+            <select id="en-course" onchange="AdminView._enrolLoadData()" style="width:100%">
+              <option value="">-- Select Course --</option>
+            </select>
+          </div>
+        </div>
+      </div></div>
+
+      <div id="en-main" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- Enrol Panel -->
+          <div class="card"><div class="card-bd">
+            <div class="sec-title mb3">Enrol Students</div>
+
+            <div style="border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px">
+              <div style="display:flex">
+                <button class="tab-btn active" id="en-tab-batch" style="flex:1;border-radius:0;border-bottom:none"
+                  onclick="AdminView._enrolSwitchTab('batch')">By Batch</button>
+                <button class="tab-btn" id="en-tab-individual" style="flex:1;border-radius:0;border-bottom:none"
+                  onclick="AdminView._enrolSwitchTab('individual')">Individual</button>
+              </div>
+            </div>
+
+            <div id="en-pane-batch">
+              <div class="fg mb3"><label>Batch Year</label>
+                <select id="en-batch" style="width:100%">
+                  <option value="">Select Batch</option>
+                </select>
+              </div>
+              <div class="fg mb3"><label>Section</label>
+                <select id="en-section" style="width:100%">
+                  <option value="">All Sections</option>
+                  <option value="A">Section A</option>
+                  <option value="B">Section B</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" style="width:100%" onclick="AdminView._enrolBatch()">Enrol Batch</button>
+            </div>
+
+            <div id="en-pane-individual" style="display:none">
+              <div class="fg mb3"><label>Search Students</label>
+                <input id="en-search" placeholder="Type name or student ID..." oninput="AdminView._enrolSearch()" style="width:100%">
+              </div>
+              <div id="en-search-results" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px">
+                <div class="text-muted text-sm" style="padding:12px">Type to search students</div>
+              </div>
+              <button class="btn btn-primary" style="width:100%" onclick="AdminView._enrolSelected()">Enrol Selected</button>
+            </div>
+
+            <div id="en-result" class="mt3"></div>
+          </div></div>
+
+          <!-- Enrolled Students Panel -->
+          <div class="card"><div class="card-bd">
+            <div class="flex-between mb3">
+              <div class="sec-title">Currently Enrolled</div>
+              <span id="en-count" class="badge bg-blue">0 students</span>
+            </div>
+            <div style="max-height:420px;overflow-y:auto">
+              <div class="tbl-wrap" style="margin:0"><table>
+                <thead><tr><th>Name</th><th>ID</th><th>Section</th><th class="td-r">Remove</th></tr></thead>
+                <tbody id="en-enrolled">${tdLoad(4)}</tbody>
+              </table></div>
+            </div>
+          </div></div>
+
+        </div>
+      </div>`;
+
+    // Load sessions
+    try {
+      const sessions = await Api.getSessions();
+      const sel = document.getElementById('en-sess');
+      if(sel) sel.innerHTML = '<option value="">-- Select Session --</option>' +
+        sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+    } catch(e) {}
+
+    AdminView._enrolSelectedIds = new Set();
+  },
+
+  async _enrolLoadCourses(){
+    const sessId = document.getElementById('en-sess')?.value;
+    const courseSel = document.getElementById('en-course');
+    if(!courseSel) return;
+    if(!sessId){ courseSel.innerHTML='<option value="">-- Select Course --</option>'; return; }
+    try{
+      const courses = await Api.getCourses({ sessionId: sessId });
+      courseSel.innerHTML = '<option value="">-- Select Course --</option>' +
+        courses.map(c=>`<option value="${c.id}">${c.code} - ${c.name}</option>`).join('');
+      document.getElementById('en-main').style.display='none';
+    }catch(e){ toast(e.message,'err'); }
+  },
+
+  async _enrolLoadData(){
+    const courseId = document.getElementById('en-course')?.value;
+    if(!courseId){ document.getElementById('en-main').style.display='none'; return; }
+    document.getElementById('en-main').style.display='';
+    await AdminView._enrolRefreshList();
+  },
+
+  async _enrolRefreshList(){
+    const courseId = document.getElementById('en-course')?.value;
+    if(!courseId) return;
+    const tbody = document.getElementById('en-enrolled');
+    const countEl = document.getElementById('en-count');
+    if(tbody) tbody.innerHTML = tdLoad(4);
+    try{
+      const list = await Api.getEnrolments(courseId);
+      if(countEl) countEl.textContent = list.length + ' student' + (list.length===1?'':'s');
+      if(!tbody) return;
+      if(!list.length){ tbody.innerHTML=tdEmpty('No students enrolled yet',4); return; }
+      tbody.innerHTML = list.map(e=>`<tr>
+        <td class="fw7">${e.student.firstName} ${e.student.lastName}</td>
+        <td style="font-family:monospace;font-size:12px">${e.student.institutionalId||'--'}</td>
+        <td>${e.student.section?'Section '+e.student.section:'--'}</td>
+        <td class="td-r"><button class="icon-btn danger" onclick="AdminView._removeEnrolment('${e.id}')">${ico('trash',13)}</button></td>
+      </tr>`).join('');
+    }catch(e){ if(tbody) tbody.innerHTML=tdEmpty(e.message,4); }
+  },
+
+  _enrolSwitchTab(tab){
+    document.getElementById('en-pane-batch').style.display = tab==='batch'?'':'none';
+    document.getElementById('en-pane-individual').style.display = tab==='individual'?'':'none';
+    document.getElementById('en-tab-batch').classList.toggle('active', tab==='batch');
+    document.getElementById('en-tab-individual').classList.toggle('active', tab==='individual');
+  },
+
+  async _enrolBatch(){
+    const courseId = document.getElementById('en-course')?.value;
+    const batchYear = document.getElementById('en-batch')?.value;
+    const section = document.getElementById('en-section')?.value;
+    const resEl = document.getElementById('en-result');
+    if(!courseId) return toast('Select a course first','err');
+    resEl.innerHTML=`<div class="loading-box" style="padding:8px 0;justify-content:flex-start"><div class="spin"></div> Enrolling...</div>`;
+    try{
+      const r = await Api.enrolStudents({ courseId, batchYear, section });
+      resEl.innerHTML=`<div class="alert alert-success"><span class="alert-icon">✓</span>Enrolled ${r.enrolled} student(s). ${r.skipped} already enrolled.</div>`;
+      await AdminView._enrolRefreshList();
+    }catch(e){ resEl.innerHTML=`<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
+  },
+
+  async _enrolSearch(){
+    const q = (document.getElementById('en-search')?.value||'').trim();
+    const el = document.getElementById('en-search-results');
+    if(!el) return;
+    if(q.length < 2){ el.innerHTML='<div class="text-muted text-sm" style="padding:12px">Type at least 2 characters</div>'; return; }
+    try{
+      const list = await Api.getUsers({role:'STUDENT', search:q});
+      if(!list.length){ el.innerHTML='<div class="text-muted text-sm" style="padding:12px">No students found</div>'; return; }
+      el.innerHTML = list.map(u=>`
+        <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border)">
+          <input type="checkbox" value="${u.id}" ${AdminView._enrolSelectedIds?.has(u.id)?'checked':''}
+            onchange="AdminView._enrolToggle('${u.id}',this.checked)">
+          <span>
+            <span class="fw7">${u.firstName} ${u.lastName}</span>
+            <span class="text-muted text-sm" style="margin-left:8px">${u.institutionalId||u.email}</span>
+          </span>
+        </label>`).join('');
+    }catch(e){ el.innerHTML=`<div class="text-muted text-sm" style="padding:12px">${e.message}</div>`; }
+  },
+
+  _enrolToggle(id, checked){
+    if(!AdminView._enrolSelectedIds) AdminView._enrolSelectedIds = new Set();
+    if(checked) AdminView._enrolSelectedIds.add(id);
+    else AdminView._enrolSelectedIds.delete(id);
+  },
+
+  async _enrolSelected(){
+    const courseId = document.getElementById('en-course')?.value;
+    const resEl = document.getElementById('en-result');
+    const ids = [...(AdminView._enrolSelectedIds||[])];
+    if(!courseId) return toast('Select a course first','err');
+    if(!ids.length) return toast('Select at least one student','err');
+    resEl.innerHTML=`<div class="loading-box" style="padding:8px 0;justify-content:flex-start"><div class="spin"></div> Enrolling...</div>`;
+    try{
+      const r = await Api.enrolStudents({ courseId, studentIds: ids });
+      resEl.innerHTML=`<div class="alert alert-success"><span class="alert-icon">✓</span>Enrolled ${r.enrolled} student(s). ${r.skipped} already enrolled.</div>`;
+      AdminView._enrolSelectedIds = new Set();
+      document.getElementById('en-search').value='';
+      document.getElementById('en-search-results').innerHTML='<div class="text-muted text-sm" style="padding:12px">Type to search students</div>';
+      await AdminView._enrolRefreshList();
+    }catch(e){ resEl.innerHTML=`<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
+  },
+
+  async _removeEnrolment(id){
+    if(!confirm('Remove this student from the course?')) return;
+    try{
+      await Api.removeEnrolment(id);
+      toast('Student removed from course');
+      await AdminView._enrolRefreshList();
+    }catch(e){ toast(e.message,'err'); }
+  },
   _loadU(){ },
 
   async outcomes(){
@@ -450,7 +820,7 @@ const AdminView={
         <div class="fg"><label>Batch Year</label>
           <select id="mu-batch">
             <option value="">-- Select --</option>
-            ${['2020','2021','2022','2023','2024','2025','2026'].map(y=>'<option value="'+y+'">'+y+'</option>').join('')}
+            <option value="">-- Select --</option>
           </select>
         </div>
         <div class="fg"><label>Section</label>
@@ -469,10 +839,13 @@ const AdminView={
     );
     if (isStudent) {
       setTimeout(() => {
-        Api.getDepartments().then(depts => {
-          const s = document.getElementById('mu-dept');
-          if (s) s.innerHTML = '<option value="">-- Select --</option>' +
+        Promise.all([Api.getDepartments(), Api.getSessions()]).then(([depts, sessions]) => {
+          const dSel = document.getElementById('mu-dept');
+          if (dSel) dSel.innerHTML = '<option value="">-- Select --</option>' +
             depts.map(d => '<option value="' + d.id + '">' + d.name + '</option>').join('');
+          const bSel = document.getElementById('mu-batch');
+          if (bSel) bSel.innerHTML = '<option value="">-- Select --</option>' +
+            sessions.map(s => '<option value="' + s.name.replace(/\D+/g,'') + '">' + s.name + '</option>').join('');
         }).catch(() => {});
       }, 50);
     }
