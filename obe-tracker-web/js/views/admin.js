@@ -476,25 +476,13 @@ const AdminView={
           <tr id="po-det-${r.poCode}" style="display:none"><td colspan="6" style="padding:0;background:var(--surface2)">
             <div style="padding:12px 20px">
               <div class="text-sm fw7 mb2" style="color:var(--text3)">Contributing Course Outcomes for ${r.poCode}</div>
-              <table style="width:100%;border-collapse:collapse;font-size:13px">
-                <thead><tr style="border-bottom:1px solid var(--border)">
-                  <th style="padding:6px 10px;text-align:left">Course</th>
-                  <th style="padding:6px 10px;text-align:left">CO</th>
-                  <th style="padding:6px 10px;text-align:left">Title</th>
-                  <th style="padding:6px 10px;text-align:center">Attained</th>
-                  <th style="padding:6px 10px;text-align:center">Total</th>
-                  <th style="padding:6px 10px;min-width:140px">Rate</th>
-                </tr></thead>
-                <tbody>${coSummary.map(co=>{const cl=co.attainmentRate>=60?'L3':'L0';return`<tr style="border-bottom:1px solid var(--border)">
-                  <td style="padding:6px 10px"><span class="code-badge">${co.courseCode||'-'}</span></td>
-                  <td style="padding:6px 10px"><span class="badge bg-green">${co.coCode||'?'}</span></td>
-                  <td style="padding:6px 10px">${co.coTitle||'?'}</td>
-                  <td style="padding:6px 10px;text-align:center;font-weight:700;color:var(--l3)">${co.attained||0}</td>
-                  <td style="padding:6px 10px;text-align:center;color:var(--text3)">${co.total||0}</td>
-                  <td style="padding:6px 10px">${attBar(co.attainmentRate||0,cl)}</td>
-                </tr>`}).join('')}
-                </tbody>
-              </table>
+              ${(()=>{
+                const relCOs=coSummary.filter(co=>(co.mappedPoIds||[]).includes(r.programOutcomeId));
+                if(!relCOs.length) return '<p class="text-sm text-muted">No mapped COs found.</p>';
+                return '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--border)"><th style="padding:6px 10px;text-align:left">Course</th><th style="padding:6px 10px;text-align:left">CO</th><th style="padding:6px 10px;text-align:left">Title</th><th style="padding:6px 10px;text-align:center">Attained</th><th style="padding:6px 10px;text-align:center">Total</th><th style="padding:6px 10px;min-width:140px">Rate</th></tr></thead><tbody>'+
+                  relCOs.map(co=>{const cl=co.attainmentRate>=60?'L3':'L0';return'<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 10px"><span class="code-badge">'+( co.courseCode||'-')+'</span></td><td style="padding:6px 10px"><span class="badge bg-green">'+(co.coCode||'?')+'</span></td><td style="padding:6px 10px">'+(co.coTitle||'?')+'</td><td style="padding:6px 10px;text-align:center;font-weight:700;color:var(--l3)">'+(co.attained||0)+'</td><td style="padding:6px 10px;text-align:center;color:var(--text3)">'+(co.total||0)+'</td><td style="padding:6px 10px">'+attBar(co.attainmentRate||0,cl)+'</td></tr>';}).join('')+
+                  '</tbody></table>';
+              })()}
             </div>
           </td></tr>`}).join('')}
           </tbody>

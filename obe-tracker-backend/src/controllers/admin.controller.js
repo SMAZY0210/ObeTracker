@@ -383,6 +383,18 @@ const getAttainmentReport = async (req, res, next) => {
       },
     });
 
+    // Fetch CO-PO mappings to link COs to POs
+    const mappings = await prisma.coPoMapping.findMany({
+      where: { courseId: { in: courseIds }, correlation: { not: null } },
+      select: { courseOutcomeId: true, programOutcomeId: true },
+    });
+    // Build map: courseOutcomeId -> [programOutcomeId]
+    const coToPOs = {};
+    mappings.forEach(m => {
+      if (!coToPOs[m.courseOutcomeId]) coToPOs[m.courseOutcomeId] = [];
+      coToPOs[m.courseOutcomeId].push(m.programOutcomeId);
+    });
+
     const coMap = {};
     coRaw.forEach(r => {
       const course = courseMap[r.courseId] || {};
@@ -390,6 +402,8 @@ const getAttainmentReport = async (req, res, next) => {
       if (!coMap[key]) coMap[key] = {
         courseCode: course.code || '', courseName: course.name || '',
         coCode: r.courseOutcome.code, coTitle: r.courseOutcome.title,
+        courseOutcomeId: r.courseOutcomeId,
+        mappedPoIds: coToPOs[r.courseOutcomeId] || [],
         attained: 0, total: 0,
       };
       coMap[key].total++;
@@ -401,6 +415,7 @@ const getAttainmentReport = async (req, res, next) => {
       const key = r.programOutcomeId;
       if (!poMap[key]) poMap[key] = {
         poCode: r.programOutcome.code, poTitle: r.programOutcome.title,
+        programOutcomeId: r.programOutcomeId,
         attained: 0, total: 0,
       };
       poMap[key].total++;

@@ -60,6 +60,26 @@ const createCourseOutcome = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const updateCourseOutcome = async (req, res, next) => {
+  try {
+    const { courseId, id } = req.params;
+    await assertFacultyOwns(req.user, courseId);
+    const { code, title, description, bloomDomain, bloomLevel, profileType, profileCode } = req.body;
+    // Check for duplicate code (excluding this CO)
+    const existing = await prisma.courseOutcome.findFirst({
+      where: { courseId, code, deletedAt: null, NOT: { id } },
+    });
+    if (existing) {
+      return res.status(409).json({ status: 'error', error: `CO code "${code}" already exists in this course.` });
+    }
+    const item = await prisma.courseOutcome.update({
+      where: { id },
+      data: { code, title, description, bloomDomain, bloomLevel, profileType, profileCode },
+    });
+    res.json({ status: 'success', data: item });
+  } catch (err) { next(err); }
+};
+
 const deleteCourseOutcome = async (req, res, next) => {
   try {
     const { courseId, id } = req.params;
@@ -443,7 +463,7 @@ const updateAssessmentAttainmentMark = async (req, res, next) => {
 
 module.exports = {
   getMyCourses,
-  getCourseOutcomes, createCourseOutcome, deleteCourseOutcome,
+  getCourseOutcomes, createCourseOutcome, updateCourseOutcome, deleteCourseOutcome,
   getMapping, saveMapping,
   getAssessments, createAssessment, deleteAssessment,
   getMarks, saveMarks,
