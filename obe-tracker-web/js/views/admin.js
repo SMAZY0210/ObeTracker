@@ -149,105 +149,141 @@ const AdminView={
   async users(){
     document.getElementById('view-root').innerHTML=`
       <div class="page-hd">
-        <div class="page-hd-left"><h1>Users</h1><div class="hd-sub">Search by role or batch year to view accounts</div></div>
+        <div class="page-hd-left"><h1>Users</h1><div class="hd-sub">Manage admins, faculty and students</div></div>
         <div class="page-hd-actions">
           <button class="btn btn-secondary" onclick="AdminView._bulkUpload()">${ico('plus')} Bulk Upload</button>
           <button class="btn btn-primary" onclick="AdminView._addUser()">${ico('add_user')} Add User</button>
         </div>
       </div>
-      <div class="filter-bar">
-        <div class="search-wrap"><input id="uq" placeholder="Search name, email or ID..." oninput="AdminView._filterU()"></div>
-        <select id="uf-role" onchange="AdminView._loadU()">
-          <option value="">-- Role --</option>
-          <option value="ADMIN">Admin</option>
-          <option value="FACULTY">Faculty</option>
-          <option value="STUDENT">Student</option>
-        </select>
-        <select id="uf-batch" onchange="AdminView._loadU()">
-          <option value="">-- Batch Year --</option>
-          <option value="2020">Batch 2020</option>
-          <option value="2021">Batch 2021</option>
-          <option value="2022">Batch 2022</option>
-          <option value="2023">Batch 2023</option>
-          <option value="2024">Batch 2024</option>
-          <option value="2025">Batch 2025</option>
-          <option value="2026">Batch 2026</option>
-        </select>
-        <select id="uf-dept" onchange="AdminView._loadU()">
-          <option value="">-- Department --</option>
-        </select>
-        <select id="uf-section" onchange="AdminView._loadU()">
-          <option value="">-- Section --</option>
-          <option value="A">Section A</option>
-          <option value="B">Section B</option>
-        </select>
-      </div>
-      <div class="tbl-wrap"><table><thead><tr>
-        <th>Name</th><th>Email / ID</th><th>Role</th><th>Batch</th><th>Section</th>
-        <th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Report</th>
-      </tr></thead>
-      <tbody id="utb"><tr><td colspan="6" class="td-load text-muted">Select a role or batch year above to view users.</td></tr></tbody>
-      </table></div>`;
+      <div id="user-tabs">
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="tab-admin">Admins</button>
+          <button class="tab-btn" data-tab="tab-faculty">Faculty</button>
+          <button class="tab-btn" data-tab="tab-students">Students</button>
+        </div>
+
+        <div class="tab-pane active" id="tab-admin">
+          <div style="margin-top:14px;margin-bottom:10px">
+            <div class="search-wrap"><input id="uq-admin" placeholder="Search name or email..." oninput="AdminView._filterTab('admin')" style="min-width:260px"></div>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr>
+            <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
+          </tr></thead><tbody id="utb-admin">${tdLoad(4)}</tbody></table></div>
+        </div>
+
+        <div class="tab-pane" id="tab-faculty">
+          <div style="margin-top:14px;margin-bottom:10px">
+            <div class="search-wrap"><input id="uq-faculty" placeholder="Search name or email..." oninput="AdminView._filterTab('faculty')" style="min-width:260px"></div>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr>
+            <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
+          </tr></thead><tbody id="utb-faculty">${tdLoad(4)}</tbody></table></div>
+        </div>
+
+        <div class="tab-pane" id="tab-students">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px;margin-bottom:10px">
+            <div class="search-wrap"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')" style="min-width:220px"></div>
+            <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:140px">
+              <option value="">All Batches</option>
+              <option value="2020">Batch 2020</option><option value="2021">Batch 2021</option>
+              <option value="2022">Batch 2022</option><option value="2023">Batch 2023</option>
+              <option value="2024">Batch 2024</option><option value="2025">Batch 2025</option>
+              <option value="2026">Batch 2026</option>
+            </select>
+            <select id="uf-section-s" onchange="AdminView._loadStudents()" style="min-width:130px">
+              <option value="">All Sections</option>
+              <option value="A">Section A</option>
+              <option value="B">Section B</option>
+            </select>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr>
+            <th>Name</th><th>Student ID</th><th>Batch</th><th>Section</th>
+            <th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Attainment</th>
+          </tr></thead><tbody id="utb-students">${tdLoad(7)}</tbody></table></div>
+        </div>
+      </div>`;
+
+    initTabs('user-tabs');
+    AdminView._loadAdmins();
+    AdminView._loadFaculty();
+    AdminView._loadStudents();
   },
 
-  async _loadU(){
-    const role=document.getElementById('uf-role')?.value;
-    const batchYear=document.getElementById('uf-batch')?.value;
-    const deptId=document.getElementById('uf-dept')?.value;
-
-    // Populate dept dropdown if empty
-    const deptSel=document.getElementById('uf-dept');
-    if(deptSel && deptSel.options.length<=1){
-      try{const depts=await Api.getDepartments();depts.forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;deptSel.appendChild(o);});}catch(_){}
-    }
-
-    const section2=document.getElementById('uf-section')?.value;
-    if(!role && !batchYear && !deptId && !section2){
-      document.getElementById('utb').innerHTML='<tr><td colspan="8" class="td-load text-muted">Select a role, batch or department to view users.</td></tr>';
-      return;
-    }
-    document.getElementById('utb').innerHTML=tdLoad(6);
+  async _loadAdmins(){
+    const el=document.getElementById('utb-admin'); if(!el) return;
+    el.innerHTML=tdLoad(4);
     try{
-      const params={};
-      if(role) params.role=role;
-      if(batchYear) params.batchYear=batchYear;
-      const section=document.getElementById('uf-section')?.value;
+      const l=await Api.getUsers({role:'ADMIN'});
+      AdminView._ul_admin=l; AdminView._renderTab('admin',l);
+    }catch(e){el.innerHTML=tdEmpty(e.message,4);}
+  },
+
+  async _loadFaculty(){
+    const el=document.getElementById('utb-faculty'); if(!el) return;
+    el.innerHTML=tdLoad(4);
+    try{
+      const l=await Api.getUsers({role:'FACULTY'});
+      AdminView._ul_faculty=l; AdminView._renderTab('faculty',l);
+    }catch(e){el.innerHTML=tdEmpty(e.message,4);}
+  },
+
+  async _loadStudents(){
+    const el=document.getElementById('utb-students'); if(!el) return;
+    el.innerHTML=tdLoad(7);
+    try{
+      const params={role:'STUDENT'};
+      const batch=document.getElementById('uf-batch-s')?.value;
+      const section=document.getElementById('uf-section-s')?.value;
+      if(batch) params.batchYear=batch;
       if(section) params.section=section;
       const l=await Api.getUsers(params);
-      // Client-side dept filter: filter by institutionalId prefix or show all
-      // (dept filtering is approximate for now — backend doesn't have dept on user directly)
-      this._ul=l;
-      if(!l.length){
-        document.getElementById('utb').innerHTML='<tr><td colspan="8" class="td-load text-muted">No users found for the selected filters.</td></tr>';
-      } else {
-        this._renderU(l);
-      }
-    }catch(e){document.getElementById('utb').innerHTML=tdEmpty(e.message,6)}
+      AdminView._ul_students=l; AdminView._renderTab('students',l);
+    }catch(e){el.innerHTML=tdEmpty(e.message,7);}
   },
 
-  _filterU(){const q=document.getElementById('uq').value.toLowerCase();this._renderU((this._ul||[]).filter(u=>`${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(q)))},
-  _renderU(list){
-    const getBatch = (u) => {
-      if(u.role !== 'STUDENT' || !u.institutionalId) return '--';
-      return 'Batch 20' + u.institutionalId.substring(0,2);
-    };
-    document.getElementById('utb').innerHTML = list.length ? list.map(u => {
-      const batch = getBatch(u);
-      const sec = (u.role==='STUDENT' && u.section) ? '<span class="badge bg-gray">Section '+u.section+'</span>' : '--';
-      return `<tr>
+  _filterTab(tab){
+    const q=(document.getElementById('uq-'+tab)?.value||'').toLowerCase();
+    const all=AdminView['_ul_'+tab]||[];
+    AdminView._renderTab(tab, all.filter(u=>
+      `${u.firstName} ${u.lastName} ${u.email} ${u.institutionalId||''}`.toLowerCase().includes(q)
+    ));
+  },
+
+  _renderTab(tab,list){
+    const cols = (tab==='students') ? 7 : 4;
+    const el=document.getElementById('utb-'+tab); if(!el) return;
+    if(!list.length){el.innerHTML=tdEmpty('No users found',cols);return;}
+    if(tab==='admin'||tab==='faculty'){
+      el.innerHTML=list.map(u=>`<tr>
         <td class="fw7">${u.firstName} ${u.lastName}</td>
-        <td class="text-muted text-sm">${u.role==='STUDENT'?(u.institutionalId||u.email):u.email}</td>
-        <td><span class="role-pill rp-${u.role}">${u.role}</span></td>
-        <td><span class="badge ${u.role==='STUDENT'?'bg-blue':'bg-gray'}">${u.role==='STUDENT'?batch:'--'}</span></td>
-        <td>${sec}</td>
+        <td class="text-muted text-sm">${u.email}</td>
         <td style="text-align:center">
           <label class="tog"><input type="checkbox" ${u.isActive?'checked':''} onchange="AdminView._togUser('${u.id}',this)"><span class="tog-track"></span></label>
         </td>
         <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
-        <td class="td-r">${u.role==='STUDENT'?`<button class="btn btn-primary btn-xs" onclick="AdminView._viewStuAtt('${u.id}','${u.firstName} ${u.lastName}')">Attainment</button>`:'--'}</td>
-      </tr>`;
-    }).join('') : tdEmpty('No users found', 7);
+      </tr>`).join('');
+    } else {
+      el.innerHTML=list.map(u=>{
+        const batch=u.institutionalId?'Batch 20'+u.institutionalId.substring(0,2):'--';
+        const sec=u.section?'<span class="badge bg-gray">Section '+u.section+'</span>':'--';
+        return `<tr>
+          <td class="fw7">${u.firstName} ${u.lastName}</td>
+          <td style="font-family:monospace;font-size:12px">${u.institutionalId||u.email}</td>
+          <td><span class="badge bg-blue">${batch}</span></td>
+          <td>${sec}</td>
+          <td style="text-align:center">
+            <label class="tog"><input type="checkbox" ${u.isActive?'checked':''} onchange="AdminView._togUser('${u.id}',this)"><span class="tog-track"></span></label>
+          </td>
+          <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
+          <td class="td-r"><button class="btn btn-primary btn-xs" onclick="AdminView._viewStuAtt('${u.id}','${u.firstName} ${u.lastName}')">Attainment</button></td>
+        </tr>`;
+      }).join('');
+    }
   },
+
+  // kept for bulk upload reload compatibility
+  _loadU(){ AdminView._loadAdmins(); AdminView._loadFaculty(); AdminView._loadStudents(); },
+
   async outcomes(){
     const progs = await Api.getPrograms();
     document.getElementById('view-root').innerHTML = `
