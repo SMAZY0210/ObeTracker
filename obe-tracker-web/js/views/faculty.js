@@ -100,9 +100,9 @@ const FacultyView = {
           <td>${co.bloomDomain?`<span class="badge bg-gray">${co.bloomDomain.charAt(0)}${co.bloomLevel||''}</span>`:'-'}</td>
           <td><div class="profile-chips">${renderProfileChips(profiles)}</div></td>
           <td>${poLinks}</td>
-          <td class="td-r" style="display:flex;gap:6px;justify-content:flex-end">
-            <button class="btn btn-secondary btn-xs" onclick="FacultyView._editCO('${co.id}','${co.code}','${co.title.replace(/'/g,"&#39;")}','${(co.description||'').replace(/'/g,"&#39;")}','${co.bloomDomain||''}',${co.bloomLevel||'null'},'${co.profileCode||''}')">${ico('edit',13)} Edit</button>
-            <button class="icon-btn danger" onclick="FacultyView._delCO('${co.id}','${co.code}')">${ico('trash',13)}</button>
+          <td class="td-r" style="white-space:nowrap;vertical-align:middle">
+            <button class="btn btn-secondary btn-xs" style="margin-right:4px" onclick="FacultyView._editCO('${co.id}','${co.code}','${co.title.replace(/'/g,"&#39;")}','${(co.description||'').replace(/'/g,"&#39;")}','${co.bloomDomain||''}',${co.bloomLevel||'null'},'${co.profileCode||''}')">${ico('edit',13)} Edit</button>
+            <button class="icon-btn danger" style="vertical-align:middle" onclick="FacultyView._delCO('${co.id}','${co.code}')">${ico('trash',13)}</button>
           </td>
         </tr>`;
       }).join('') : tdEmpty('No COs yet. Add your first Course Outcome.',6);
