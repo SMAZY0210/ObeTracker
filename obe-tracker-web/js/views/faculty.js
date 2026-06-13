@@ -22,6 +22,39 @@ const FacultyView = {
     } catch(e) { document.getElementById('fac-list').innerHTML = `<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
   },
 
+  _editCourse(id, name, code, creditHours) {
+    showModal('Edit Course', `
+      <div class="fg mb3"><label>Course Name</label><input id="ec-name" value="${name}"></div>
+      <div class="form-row fr2">
+        <div class="fg"><label>Course Code</label><input id="ec-code" value="${code}"></div>
+        <div class="fg"><label>Credit Hours</label><input id="ec-cr" type="number" value="${creditHours}" min="1" max="6"></div>
+      </div>`,
+      `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+       <button class="btn btn-primary" onclick="FacultyView._saveEditCourse('${id}')">${ico('save')} Save</button>`);
+  },
+
+  async _saveEditCourse(id) {
+    const name = document.getElementById('ec-name').value.trim();
+    const code = document.getElementById('ec-code').value.trim();
+    const creditHours = parseInt(document.getElementById('ec-cr').value) || 3;
+    if (!name || !code) return toast('Name and code required', 'err');
+    try {
+      await Api.updateCourse(id, { name, code, creditHours });
+      toast('Course updated');
+      closeModal();
+      this.courses();
+    } catch(e) { toast(e.message, 'err'); }
+  },
+
+  async _deleteCourse(id, name) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    try {
+      await Api.deleteCourse(id);
+      toast('Course deleted');
+      this.courses();
+    } catch(e) { toast(e.message, 'err'); }
+  },
+
   _openC(id, name, code) {
     this._cid = id;
     document.getElementById('view-root').innerHTML = `
@@ -417,11 +450,15 @@ const FacultyView = {
         stuInfo +
         '<div class="sec-title mb2">Marks by Assessment</div>' +
         '<div class="tbl-wrap mb4"><table><thead><tr><th>Assessment</th><th style="text-align:center">Total</th><th style="text-align:center">Attainment Mark</th><th style="text-align:center">Obtained</th><th style="text-align:center">Result</th></tr></thead><tbody>' + assRows + '</tbody></table></div>' +
-        '<div class="sec-title mb2">CO Attainment</div>' +
-        '<div class="tbl-wrap mb4"><table><thead><tr><th>CO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead><tbody>' + coRows + '</tbody></table></div>' +
         '<div class="sec-title mb2">PO Attainment</div>' +
-        '<div class="tbl-wrap"><table><thead><tr><th>PO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead><tbody>' + poRows + '</tbody></table></div>';
-      document.getElementById('modal-ft').innerHTML = '<button class="btn btn-ghost" onclick="closeModal()">Close</button>';
+        '<div class="tbl-wrap mb4"><table><thead><tr><th>PO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead><tbody>' + poRows + '</tbody></table></div>' +
+        '<div class="sec-title mb2">CO Attainment</div>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>CO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead><tbody>' + coRows + '</tbody></table></div>';
+      FacultyView._lastStuReport = { student: d.student, assessmentDetail: d.assessmentDetail||[], coAttainments: d.coAttainments||[], poAttainments: d.poAttainments||[] };
+      document.getElementById('modal-ft').innerHTML =
+        '<button class="btn btn-secondary btn-sm" onclick="FacultyView._exportStuCSV()">CSV</button>' +
+        '<button class="btn btn-secondary btn-sm" onclick="FacultyView._exportStuPDF()">PDF</button>' +
+        '<button class="btn btn-ghost" onclick="closeModal()">Close</button>';
       document.getElementById('modal-ft').classList.remove('hidden');
     } catch(e) { document.getElementById('modal-body').innerHTML = '<div class="alert alert-error"><span class="alert-icon">!</span>' + e.message + '</div>'; }
   },

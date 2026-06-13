@@ -434,7 +434,6 @@ const AdminView={
       if(sessId) filters.sessionId=sessId;
       if(deptId) filters.departmentId=deptId;
 
-      // If student ID entered, look up student and show individual report
       if(stuInput){
         const users=await Api.getUsers({role:'STUDENT',search:stuInput});
         const stu=users.find(u=>u.institutionalId===stuInput||u.email===stuInput);
@@ -449,9 +448,58 @@ const AdminView={
         el.innerHTML=`<div class="empty-box"><div class="empty-ico">${ico('chart',24)}</div><h3>No data for this filter</h3><p>Try a different batch or department.</p></div>`;
         return;
       }
+
+      // Build a map: poCode -> list of contributing COs
+      const poCoMap={};
+      poSummary.forEach(po=>{ poCoMap[po.poCode]=coSummary.filter(co=>co.poCode===po.poCode||true); });
+
       el.innerHTML=`
-        <div class="flex-between mb3"><div class="sec-title">Course Outcome Attainment</div>
-          <button class="btn btn-secondary btn-sm" onclick="AdminView._exportCSV()">${ico('dl',13)} Export CSV</button></div>
+        <div class="flex-between mb3">
+          <div class="sec-title">Program Outcome Attainment</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="AdminView._exportCSV()">${ico('dl',13)} Export CSV</button>
+            <button class="btn btn-secondary btn-sm" onclick="AdminView._exportPDF()">${ico('dl',13)} Export PDF</button>
+          </div>
+        </div>
+        <div class="tbl-wrap mb4"><table>
+          <thead><tr><th>PO</th><th>Title</th>
+            <th style="text-align:center">Attained</th><th style="text-align:center">Total</th>
+            <th style="min-width:160px">Rate</th><th style="text-align:center">Details</th></tr></thead>
+          <tbody>${poSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';const relCOs=coSummary.filter(co=>co.poCode===r.poCode);return`<tr>
+            <td><span class="badge bg-blue">${r.poCode||'?'}</span></td>
+            <td>${r.poTitle||'?'}</td>
+            <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attained||0}</td>
+            <td style="text-align:center;color:var(--text3)">${r.total||0}</td>
+            <td>${attBar(r.attainmentRate||0,lvl)}</td>
+            <td style="text-align:center"><button class="btn btn-ghost btn-xs" onclick="AdminView._togglePODetail('po-det-${r.poCode}')">${ico('expand',12)} Show COs</button></td>
+          </tr>
+          <tr id="po-det-${r.poCode}" style="display:none"><td colspan="6" style="padding:0;background:var(--surface2)">
+            <div style="padding:12px 20px">
+              <div class="text-sm fw7 mb2" style="color:var(--text3)">Contributing Course Outcomes for ${r.poCode}</div>
+              <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead><tr style="border-bottom:1px solid var(--border)">
+                  <th style="padding:6px 10px;text-align:left">Course</th>
+                  <th style="padding:6px 10px;text-align:left">CO</th>
+                  <th style="padding:6px 10px;text-align:left">Title</th>
+                  <th style="padding:6px 10px;text-align:center">Attained</th>
+                  <th style="padding:6px 10px;text-align:center">Total</th>
+                  <th style="padding:6px 10px;min-width:140px">Rate</th>
+                </tr></thead>
+                <tbody>${coSummary.map(co=>{const cl=co.attainmentRate>=60?'L3':'L0';return`<tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:6px 10px"><span class="code-badge">${co.courseCode||'-'}</span></td>
+                  <td style="padding:6px 10px"><span class="badge bg-green">${co.coCode||'?'}</span></td>
+                  <td style="padding:6px 10px">${co.coTitle||'?'}</td>
+                  <td style="padding:6px 10px;text-align:center;font-weight:700;color:var(--l3)">${co.attained||0}</td>
+                  <td style="padding:6px 10px;text-align:center;color:var(--text3)">${co.total||0}</td>
+                  <td style="padding:6px 10px">${attBar(co.attainmentRate||0,cl)}</td>
+                </tr>`}).join('')}
+                </tbody>
+              </table>
+            </div>
+          </td></tr>`}).join('')}
+          </tbody>
+        </table></div>
+        <div class="sec-title mb3">Course Outcome Attainment</div>
         <div class="tbl-wrap mb4"><table>
           <thead><tr><th>Course</th><th>CO</th><th>Title</th>
             <th style="text-align:center">Attained</th><th style="text-align:center">Total</th>
@@ -464,22 +512,22 @@ const AdminView={
             <td style="text-align:center;color:var(--text3)">${r.total||0}</td>
             <td>${attBar(r.attainmentRate||0,lvl)}</td>
           </tr>`}).join('')}</tbody>
-        </table></div>
-        <div class="sec-title mb3">Program Outcome Attainment</div>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>PO</th><th>Title</th>
-            <th style="text-align:center">Attained</th><th style="text-align:center">Total</th>
-            <th style="min-width:160px">Rate</th></tr></thead>
-          <tbody>${poSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';return`<tr>
-            <td><span class="badge bg-blue">${r.poCode||'?'}</span></td>
-            <td>${r.poTitle||'?'}</td>
-            <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attained||0}</td>
-            <td style="text-align:center;color:var(--text3)">${r.total||0}</td>
-            <td>${attBar(r.attainmentRate||0,lvl)}</td>
-          </tr>`}).join('')}</tbody>
         </table></div>`;
       this._lastReport={coSummary,poSummary};
     }catch(e){el.innerHTML=`<div class="alert alert-error"><span class="alert-icon">&#9888;</span>${e.message}</div>`}
+  },
+
+  _togglePODetail(id){
+    const row=document.getElementById(id);
+    if(!row) return;
+    const btn=row.previousElementSibling?.querySelector('button');
+    if(row.style.display==='none'){
+      row.style.display='';
+      if(btn) btn.innerHTML=ico('collapse',12)+' Hide COs';
+    } else {
+      row.style.display='none';
+      if(btn) btn.innerHTML=ico('expand',12)+' Show COs';
+    }
   },
 
   async _viewStuAtt(studentId, name){
@@ -534,33 +582,113 @@ const AdminView={
           '<div><span class="text-muted text-sm">Batch</span><div class="fw7">'+batch+'</div></div>' +
           '<div><span class="text-muted text-sm">Section</span><div class="fw7">'+sec+'</div></div>' +
         '</div>' +
-        '<div class="sec-title mb2">Course Outcome Attainment</div>' +
-        '<div class="tbl-wrap mb4"><table><thead><tr><th>CO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead>' +
-        '<tbody>'+coHtml+'</tbody></table></div>' +
         '<div class="sec-title mb2">Program Outcome Attainment</div>' +
-        '<div class="tbl-wrap"><table><thead><tr><th>PO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead>' +
-        '<tbody>'+poHtml+'</tbody></table></div>';
+        '<div class="tbl-wrap mb4"><table><thead><tr><th>PO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead>' +
+        '<tbody>'+poHtml+'</tbody></table></div>' +
+        '<div class="sec-title mb2">Course Outcome Attainment</div>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>CO</th><th>Title</th><th style="text-align:center">Result</th><th style="text-align:right">Score</th></tr></thead>' +
+        '<tbody>'+coHtml+'</tbody></table></div>';
+      AdminView._lastStuReport = { student: stu, name, coAttainments: d.coAttainments||[], poAttainments: d.poAttainments||[] };
 
-      const attained = (d.coAttainments||[]).filter(r=>r.level==='L3').length;
-      const total    = (d.coAttainments||[]).length;
+      const attained = (d.poAttainments||[]).filter(r=>r.level==='L3').length;
+      const total    = (d.poAttainments||[]).length;
       document.getElementById('modal-ft').innerHTML =
-        '<span class="text-sm text-muted">CO attained: '+attained+'/'+total+'</span>' +
+        '<span class="text-sm text-muted">PO attained: '+attained+'/'+total+'</span>' +
+        '<button class="btn btn-secondary btn-sm" onclick="AdminView._exportStuCSV(\''+studentId+'\',\''+name+'\')">CSV</button>' +
+        '<button class="btn btn-secondary btn-sm" onclick="AdminView._exportStuPDF(\''+studentId+'\',\''+name+'\')">PDF</button>' +
         '<button class="btn btn-ghost" onclick="closeModal()">Close</button>';
       document.getElementById('modal-ft').classList.remove('hidden');
     }catch(e){document.getElementById('modal-body').innerHTML='<div class="alert alert-error">'+e.message+'</div>';}
   },
+  _exportStuCSV(studentId, name){
+    const d = AdminView._lastStuReport; if(!d) return;
+    const rows=[
+      ['Name', name],['ID', d.student.institutionalId||''],['',''],
+      ['Type','Code','Title','Result','Score (%)'],
+      ...d.poAttainments.map(r=>['PO',r.programOutcome.code,r.programOutcome.title,r.level==='L3'?'Attained':'Not Attained',r.percentage.toFixed(1)]),
+      ['','','','',''],
+      ...d.coAttainments.map(r=>['CO',r.courseOutcome.code,r.courseOutcome.title,r.level==='L3'?'Attained':'Not Attained',r.percentage.toFixed(1)]),
+    ];
+    const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    a.download='attainment_'+( d.student.institutionalId||'student')+'.csv'; a.click();
+  },
+
+  _exportStuPDF(studentId, name){
+    const d = AdminView._lastStuReport; if(!d) return;
+    const stu=d.student;
+    const batch=stu.institutionalId?'Batch 20'+stu.institutionalId.substring(0,2):'--';
+    const win=window.open('','_blank');
+    const poRows=d.poAttainments.map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.programOutcome.code}</b></td><td>${r.programOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
+    const coRows=d.coAttainments.map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.courseOutcome.code}</b></td><td>${r.courseOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
+    win.document.write(`<!DOCTYPE html><html><head><title>Attainment - ${name}</title><style>
+      body{font-family:Arial,sans-serif;padding:30px;color:#222}
+      h1{font-size:20px;margin-bottom:4px}h2{font-size:15px;color:#555;margin:20px 0 8px}
+      .info{display:flex;gap:30px;padding:12px;background:#f5f5f5;border-radius:6px;margin-bottom:20px;font-size:13px}
+      .info div span{display:block;color:#888;font-size:11px}
+      table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px}
+      th{background:#f0f0f0;padding:8px 10px;text-align:left;border:1px solid #ccc}
+      td{padding:7px 10px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+      @media print{button{display:none}}
+    </style></head><body>
+    <h1>Student Attainment Report</h1>
+    <div class="info">
+      <div><span>Student</span><b>${name}</b></div>
+      <div><span>ID</span><b>${stu.institutionalId||'--'}</b></div>
+      <div><span>Batch</span><b>${batch}</b></div>
+      <div><span>Section</span><b>${stu.section?'Section '+stu.section:'--'}</b></div>
+    </div>
+    <h2>Program Outcome Attainment</h2>
+    <table><thead><tr><th>PO</th><th>Title</th><th>Result</th><th style="text-align:right">Score</th></tr></thead>
+    <tbody>${poRows}</tbody></table>
+    <h2>Course Outcome Attainment</h2>
+    <table><thead><tr><th>CO</th><th>Title</th><th>Result</th><th style="text-align:right">Score</th></tr></thead>
+    <tbody>${coRows}</tbody></table>
+    <button onclick="window.print()" style="margin-top:10px;padding:8px 20px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">Print / Save as PDF</button>
+    </body></html>`);
+    win.document.close();
+  },
+
   _exportCSV(){
-    const d=this._lastReport; if(!d) return;
+    const d=this._lastReport; if(!d) return toast('Generate a report first','err');
     const rows=[
       ['Type','Course','Code','Title','Attained','Total','Rate(%)'],
-      ...d.coSummary.map(r=>['CO',r.courseCode,r.coCode,r.coTitle,r.attained,r.total,r.attainmentRate]),
-      ['','','','','','',''],
       ...d.poSummary.map(r=>['PO','',r.poCode,r.poTitle,r.attained,r.total,r.attainmentRate]),
+      ['','','','','','',''],
+      ...d.coSummary.map(r=>['CO',r.courseCode,r.coCode,r.coTitle,r.attained,r.total,r.attainmentRate]),
     ];
     const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
     a.download='attainment_report.csv'; a.click();
+  },
+
+  _exportPDF(){
+    const d=this._lastReport; if(!d) return toast('Generate a report first','err');
+    const win=window.open('','_blank');
+    const poRows=d.poSummary.map(r=>`<tr><td><b>${r.poCode||''}</b></td><td>${r.poTitle||''}</td><td style="text-align:center">${r.attained||0}</td><td style="text-align:center">${r.total||0}</td><td style="text-align:center">${(+(r.attainmentRate||0)).toFixed(1)}%</td></tr>`).join('');
+    const coRows=d.coSummary.map(r=>`<tr><td>${r.courseCode||''}</td><td><b>${r.coCode||''}</b></td><td>${r.coTitle||''}</td><td style="text-align:center">${r.attained||0}</td><td style="text-align:center">${r.total||0}</td><td style="text-align:center">${(+(r.attainmentRate||0)).toFixed(1)}%</td></tr>`).join('');
+    win.document.write(`<!DOCTYPE html><html><head><title>Attainment Report</title><style>
+      body{font-family:Arial,sans-serif;padding:30px;color:#222}
+      h1{font-size:20px;margin-bottom:4px}h2{font-size:15px;color:#555;margin:20px 0 8px}
+      table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px}
+      th{background:#f0f0f0;padding:8px 10px;text-align:left;border:1px solid #ccc}
+      td{padding:7px 10px;border:1px solid #ddd}
+      tr:nth-child(even){background:#fafafa}
+      .att{color:#16a34a;font-weight:700}.not{color:#dc2626;font-weight:700}
+      @media print{button{display:none}}
+    </style></head><body>
+    <h1>Attainment Report</h1><p style="color:#888;font-size:12px">Generated: ${new Date().toLocaleString()}</p>
+    <h2>Program Outcome Attainment</h2>
+    <table><thead><tr><th>PO</th><th>Title</th><th>Attained</th><th>Total</th><th>Rate</th></tr></thead>
+    <tbody>${poRows}</tbody></table>
+    <h2>Course Outcome Attainment</h2>
+    <table><thead><tr><th>Course</th><th>CO</th><th>Title</th><th>Attained</th><th>Total</th><th>Rate</th></tr></thead>
+    <tbody>${coRows}</tbody></table>
+    <button onclick="window.print()" style="margin-top:10px;padding:8px 20px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">Print / Save as PDF</button>
+    </body></html>`);
+    win.document.close();
   },
 
 };

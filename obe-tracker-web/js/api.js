@@ -50,6 +50,7 @@ const Api = {
   getCourses(filters)                 { return this.get('/admin/courses', filters); },
   createCourse(d)                     { return this.post('/admin/courses', d); },
   deleteCourse(id)                    { return this.delete('/admin/courses/' + id); },
+  updateCourse(id, d)                 { return this.put('/admin/courses/' + id, d); },
   assignFaculty(courseId, facultyIds) { return this.put('/admin/courses/' + courseId + '/faculty', { facultyIds }); },
   getUsers(filters)                   { return this.get('/admin/users', filters); },
   createUser(d)                       { return this.post('/admin/users', d); },

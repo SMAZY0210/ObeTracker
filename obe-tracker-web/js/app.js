@@ -22,7 +22,7 @@ const App={
         {id:'admin-structure',label:'Structure',  icon:'tree'},
         {id:'admin-courses',  label:'Courses',    icon:'book'},
         {id:'admin-users',    label:'Users',      icon:'users'},
-        {id:'admin-outcomes', label:'Outcomes',   icon:'target'},
+        {id:'admin-outcomes', label:'Program Outcomes',   icon:'target'},
         {id:'admin-attain',   label:'Attainment',  icon:'chart'},
       ],
       FACULTY:[
