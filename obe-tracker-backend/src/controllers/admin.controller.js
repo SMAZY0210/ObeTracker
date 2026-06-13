@@ -251,11 +251,22 @@ const createUser = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firstName, lastName, institutionalId, section, isActive } = req.body;
+    const { firstName, lastName, email, institutionalId, section, isActive, password } = req.body;
+    const data = {};
+    if (firstName !== undefined) data.firstName = firstName;
+    if (lastName  !== undefined) data.lastName  = lastName;
+    if (email     !== undefined) data.email      = email;
+    if (institutionalId !== undefined) data.institutionalId = institutionalId;
+    if (section   !== undefined) data.section    = section;
+    if (isActive  !== undefined) data.isActive   = isActive;
+    if (password) {
+      const bcrypt = require('bcrypt');
+      data.passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_COST) || 10);
+    }
     const user = await prisma.user.update({
       where: { id },
-      data: { firstName, lastName, institutionalId, section, isActive },
-      select: { id: true, email: true, role: true, firstName: true, lastName: true, isActive: true },
+      data,
+      select: { id: true, email: true, role: true, firstName: true, lastName: true, isActive: true, institutionalId: true, section: true },
     });
     res.json({ status: 'success', data: user });
   } catch (err) { next(err); }
