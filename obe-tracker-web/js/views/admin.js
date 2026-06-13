@@ -189,7 +189,7 @@ const AdminView={
 
   async students(){
     // Load departments for the filter dropdown
-    let deptOptions = '<option value="">All Departments</option>';
+    let deptOptions = '<option value="">Select Department</option>';
     try {
       const depts = await Api.getDepartments();
       deptOptions += depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
@@ -206,7 +206,7 @@ const AdminView={
       <div class="filter-bar" style="margin-bottom:12px">
         <div class="search-wrap" style="flex:2"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')"></div>
         <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:130px">
-          <option value="">All Batches</option>
+          <option value="">Select Batch</option>
           <option value="2020">Batch 2020</option><option value="2021">Batch 2021</option>
           <option value="2022">Batch 2022</option><option value="2023">Batch 2023</option>
           <option value="2024">Batch 2024</option><option value="2025">Batch 2025</option>
@@ -216,7 +216,7 @@ const AdminView={
           ${deptOptions}
         </select>
         <select id="uf-section-s" onchange="AdminView._loadStudents()" style="min-width:120px">
-          <option value="">All Sections</option>
+          <option value="">Select Section</option>
           <option value="A">Section A</option>
           <option value="B">Section B</option>
         </select>
@@ -458,9 +458,9 @@ const AdminView={
         <div class="card mb4"><div class="card-bd">
           <div class="filter-bar" style="margin-bottom:0">
             <div class="fg" style="flex:1;margin:0"><label>Batch / Session</label>
-              <select id="ar-sess"><option value="">All Batches</option>${sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
+              <select id="ar-sess"><option value="">Select Batch</option>${sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
             <div class="fg" style="flex:1;margin:0"><label>Department</label>
-              <select id="ar-dept"><option value="">All Departments</option>${depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('')}</select></div>
+              <select id="ar-dept"><option value="">Select Department</option>${depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('')}</select></div>
             <div class="fg" style="flex:1;margin:0"><label>Student ID (optional)</label>
               <input id="ar-stu" placeholder="e.g. 23549009001" style="font-family:monospace"></div>
             <div style="padding-top:22px">
