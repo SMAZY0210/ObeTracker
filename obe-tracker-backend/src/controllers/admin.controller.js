@@ -545,12 +545,17 @@ const getEnrolments = async (req, res, next) => {
     if (!courseId) return res.status(400).json({ status: 'error', error: 'courseId required' });
     const enrolments = await prisma.enrolment.findMany({
       where: { courseId },
-      include: {
-        student: { select: { id: true, firstName: true, lastName: true, institutionalId: true, section: true } },
-      },
       orderBy: { createdAt: 'asc' },
     });
-    res.json({ status: 'success', data: enrolments });
+    // Fetch student details separately since Enrolment has no student relation
+    const studentIds = enrolments.map(e => e.studentId);
+    const students = await prisma.user.findMany({
+      where: { id: { in: studentIds } },
+      select: { id: true, firstName: true, lastName: true, institutionalId: true, section: true },
+    });
+    const studentMap = Object.fromEntries(students.map(s => [s.id, s]));
+    const data = enrolments.map(e => ({ ...e, student: studentMap[e.studentId] || null }));
+    res.json({ status: 'success', data });
   } catch (err) { next(err); }
 };
 
