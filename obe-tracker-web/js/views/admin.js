@@ -147,7 +147,8 @@ const AdminView={
 
   // ── Users ──────────────────────────────────────────────────
   async admins(){
-    document.getElementById('view-root').innerHTML=`
+    const root = document.getElementById('view-root');
+    root.innerHTML=`
       <div class="page-hd">
         <div class="page-hd-left"><h1>Admins</h1><div class="hd-sub">System administrator accounts</div></div>
         <div class="page-hd-actions">
@@ -159,11 +160,14 @@ const AdminView={
       </div>
       <div class="tbl-wrap"><table><thead><tr>
         <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
-      </tr></thead><tbody id="utb-admin">${loading()}</tbody></table></div>`;
+      </tr></thead><tbody id="utb-admin">${tdLoad(4)}</tbody></table></div>`;
     try{
       const l=await Api.getUsers({role:'ADMIN'});
       AdminView._ul_admin=l; AdminView._renderTab('admin',l);
-    }catch(e){document.getElementById('utb-admin').innerHTML=tdEmpty(e.message,4);}
+    }catch(e){
+      const el=document.getElementById('utb-admin');
+      if(el) el.innerHTML=tdEmpty(e.message,4);
+    }
   },
 
   async faculty(){
@@ -180,11 +184,14 @@ const AdminView={
       </div>
       <div class="tbl-wrap"><table><thead><tr>
         <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
-      </tr></thead><tbody id="utb-faculty">${loading()}</tbody></table></div>`;
+      </tr></thead><tbody id="utb-faculty">${tdLoad(4)}</tbody></table></div>`;
     try{
       const l=await Api.getUsers({role:'FACULTY'});
       AdminView._ul_faculty=l; AdminView._renderTab('faculty',l);
-    }catch(e){document.getElementById('utb-faculty').innerHTML=tdEmpty(e.message,4);}
+    }catch(e){
+      const el=document.getElementById('utb-faculty');
+      if(el) el.innerHTML=tdEmpty(e.message,4);
+    }
   },
 
   async students(){
@@ -364,8 +371,13 @@ const AdminView={
   },
   async _confirmBulk(){const users=window._bulkUsers;if(!users||!users.length)return toast('Parse a file first','err');
     try{const res=await Api.bulkCreateUsers(users);toast('Created: '+res.created+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
-  _addUser() {
-    showModal('Create User', `
+  _addUser(forceRole) {
+    const roleLabel = forceRole === 'ADMIN' ? 'Admin' : forceRole === 'FACULTY' ? 'Faculty' : 'Student';
+    const isStudent = forceRole === 'STUDENT' || !forceRole;
+    const isFaculty = forceRole === 'FACULTY';
+    const isAdmin   = forceRole === 'ADMIN';
+
+    showModal('Create ' + roleLabel, `
       <div class="form-row fr2 mb3">
         <div class="fg"><label>First Name</label><input id="mu-fn" placeholder="First name"></div>
         <div class="fg"><label>Last Name</label><input id="mu-ln" placeholder="Last name"></div>
@@ -373,78 +385,73 @@ const AdminView={
       <div class="fg mb3"><label>Email</label>
         <input id="mu-em" type="email" placeholder="name@bup.edu.bd">
       </div>
-      <div class="form-row fr2 mb3">
-        <div class="fg"><label>Role</label>
-          <select id="mu-role" onchange="AdminView._onRoleChange()">
-            <option value="STUDENT">Student</option>
-            <option value="FACULTY">Faculty</option>
-            <option value="ADMIN">Admin</option>
+      <div class="fg mb3"><label>Password</label>
+        <input id="mu-pw" type="password" placeholder="Set a password for this user">
+      </div>
+      <input type="hidden" id="mu-role" value="${forceRole||'STUDENT'}">
+      ${isStudent ? `
+      <div class="fg mb3"><label>Institutional ID</label>
+        <input id="mu-id" placeholder="e.g. 23549009001">
+      </div>
+      <div class="form-row fr3 mb3">
+        <div class="fg"><label>Batch Year</label>
+          <select id="mu-batch">
+            <option value="">-- Select --</option>
+            ${['2020','2021','2022','2023','2024','2025','2026'].map(y=>'<option value="'+y+'">'+y+'</option>').join('')}
           </select>
         </div>
-        <div class="fg"><label>Institutional ID</label>
-          <input id="mu-id" placeholder="e.g. 23549009001">
+        <div class="fg"><label>Section</label>
+          <select id="mu-section">
+            <option value="">-- Select --</option>
+            <option value="A">Section A</option>
+            <option value="B">Section B</option>
+          </select>
         </div>
-      </div>
-      <div id="mu-extra" style="border-top:1px solid var(--border);padding-top:14px">
-        <div class="form-row fr3 mb0">
-          <div class="fg"><label>Batch Year</label>
-            <select id="mu-batch">
-              <option value="">-- Select --</option>
-              ${['2020','2021','2022','2023','2024','2025','2026'].map(y=>'<option value="'+y+'">'+y+'</option>').join('')}
-            </select>
-          </div>
-          <div class="fg"><label>Section</label>
-            <select id="mu-section">
-              <option value="">-- Select --</option>
-              <option value="A">Section A</option>
-              <option value="B">Section B</option>
-            </select>
-          </div>
-          <div class="fg"><label>Department</label>
-            <select id="mu-dept"><option value="">Loading...</option></select>
-          </div>
+        <div class="fg"><label>Department</label>
+          <select id="mu-dept"><option value="">Loading...</option></select>
         </div>
-      </div>`,
+      </div>` : `<input type="hidden" id="mu-id" value=""><input type="hidden" id="mu-section" value=""><input type="hidden" id="mu-dept" value="">`}`,
       `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-       <button class="btn btn-primary" onclick="AdminView._saveUser()">${ico('save')} Create</button>`
+       <button class="btn btn-primary" onclick="AdminView._saveUser()">${ico('save')} Create ${roleLabel}</button>`
     );
-    // Populate departments after modal renders
-    setTimeout(() => {
-      Api.getDepartments().then(depts => {
-        const s = document.getElementById('mu-dept');
-        if (s) s.innerHTML = '<option value="">-- Select --</option>' +
-          depts.map(d => '<option value="' + d.id + '">' + d.name + '</option>').join('');
-      }).catch(() => {});
-      // Show extra fields by default (Student is default role)
-      AdminView._onRoleChange();
-    }, 50);
+    if (isStudent) {
+      setTimeout(() => {
+        Api.getDepartments().then(depts => {
+          const s = document.getElementById('mu-dept');
+          if (s) s.innerHTML = '<option value="">-- Select --</option>' +
+            depts.map(d => '<option value="' + d.id + '">' + d.name + '</option>').join('');
+        }).catch(() => {});
+      }, 50);
+    }
   },
 
-  _onRoleChange() {
-    const role  = document.getElementById('mu-role')?.value;
-    const extra = document.getElementById('mu-extra');
-    if (extra) extra.style.display = (role === 'STUDENT' || !role) ? '' : 'none';
-  },
+  _onRoleChange() {},
 
 
   async _saveUser() {
-    const role   = document.getElementById('mu-role').value;
-    const instId = document.getElementById('mu-id').value.trim();
+    const role    = document.getElementById('mu-role').value;
+    const instId  = document.getElementById('mu-id')?.value.trim();
     const section = role === 'STUDENT' ? (document.getElementById('mu-section')?.value || null) : null;
+    const password = document.getElementById('mu-pw')?.value.trim();
     const d = {
-      firstName:      document.getElementById('mu-fn').value.trim(),
-      lastName:       document.getElementById('mu-ln').value.trim(),
-      email:          document.getElementById('mu-em').value.trim(),
+      firstName:       document.getElementById('mu-fn').value.trim(),
+      lastName:        document.getElementById('mu-ln').value.trim(),
+      email:           document.getElementById('mu-em').value.trim(),
       role,
       institutionalId: instId || null,
       section,
+      password:        password || undefined,
     };
     if (!d.firstName || !d.lastName || !d.email) return toast('Name and email required', 'err');
+    if (!password) return toast('Password is required', 'err');
     try {
-      const r = await Api.createUser(d);
-      toast('Created! Password: ' + (r.tempPassword || instId || '1234'), 'ok');
+      await Api.createUser(d);
+      toast(role.charAt(0) + role.slice(1).toLowerCase() + ' created successfully');
       closeModal();
-      this._loadU();
+      // Reload the correct tab
+      if (role === 'ADMIN') AdminView.admins();
+      else if (role === 'FACULTY') AdminView.faculty();
+      else AdminView._loadStudents();
     } catch(e) { toast(e.message, 'err'); }
   },
 
