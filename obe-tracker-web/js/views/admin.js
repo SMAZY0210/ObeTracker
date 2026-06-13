@@ -159,7 +159,7 @@ const AdminView={
         <div class="search-wrap"><input id="uq-admin" placeholder="Search name or email..." oninput="AdminView._filterTab('admin')" style="min-width:280px"></div>
       </div>
       <div class="tbl-wrap"><table><thead><tr>
-        <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
+        <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Actions</th>
       </tr></thead><tbody id="utb-admin">${tdLoad(4)}</tbody></table></div>`;
     try{
       const l=await Api.getUsers({role:'ADMIN'});
@@ -183,7 +183,7 @@ const AdminView={
         <div class="search-wrap"><input id="uq-faculty" placeholder="Search name or email..." oninput="AdminView._filterTab('faculty')" style="min-width:280px"></div>
       </div>
       <div class="tbl-wrap"><table><thead><tr>
-        <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th>
+        <th>Name</th><th>Email</th><th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Actions</th>
       </tr></thead><tbody id="utb-faculty">${tdLoad(4)}</tbody></table></div>`;
     try{
       const l=await Api.getUsers({role:'FACULTY'});
@@ -280,6 +280,7 @@ const AdminView={
           <label class="tog"><input type="checkbox" ${u.isActive?'checked':''} onchange="AdminView._togUser('${u.id}',this)"><span class="tog-track"></span></label>
         </td>
         <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
+        <td class="td-r"><button class="btn btn-secondary btn-xs" onclick="AdminView._editUser('${u.id}','${u.firstName}','${u.lastName}','${u.email}','${u.role}','','','')">Edit</button></td>
       </tr>`).join('');
     } else {
       el.innerHTML=list.map(u=>{
@@ -294,7 +295,10 @@ const AdminView={
             <label class="tog"><input type="checkbox" ${u.isActive?'checked':''} onchange="AdminView._togUser('${u.id}',this)"><span class="tog-track"></span></label>
           </td>
           <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
-          <td class="td-r"><button class="btn btn-primary btn-xs" onclick="AdminView._viewStuAtt('${u.id}','${u.firstName} ${u.lastName}')">Attainment</button></td>
+          <td class="td-r" style="white-space:nowrap">
+            <button class="btn btn-secondary btn-xs" style="margin-right:4px" onclick="AdminView._editUser('${u.id}','${u.firstName}','${u.lastName}','${u.email}','${u.role}','${u.institutionalId||''}','${u.section||''}','')">Edit</button>
+            <button class="btn btn-primary btn-xs" onclick="AdminView._viewStuAtt('${u.id}','${u.firstName} ${u.lastName}')">Attainment</button>
+          </td>
         </tr>`;
       }).join('');
     }
@@ -354,6 +358,55 @@ const AdminView={
     try{await Api.deleteProgramOutcome(id);toast('Deleted');this._loadPOs()}catch(e){toast(e.message,'err')}},
 
   // ── Thresholds ─────────────────────────────────────────────
+  _editUser(id, firstName, lastName, email, role, institutionalId, section) {
+    const isStudent = role === 'STUDENT';
+    showModal('Edit User', `
+      <div class="form-row fr2 mb3">
+        <div class="fg"><label>First Name</label><input id="eu-fn" value="${firstName}"></div>
+        <div class="fg"><label>Last Name</label><input id="eu-ln" value="${lastName}"></div>
+      </div>
+      <div class="fg mb3"><label>Email</label><input id="eu-em" type="email" value="${email}"></div>
+      <div class="fg mb3"><label>New Password <span class="text-muted">(leave blank to keep current)</span></label>
+        <input id="eu-pw" type="password" placeholder="Leave blank to keep unchanged"></div>
+      ${isStudent ? `
+      <div class="form-row fr2 mb3">
+        <div class="fg"><label>Student ID</label><input id="eu-id" value="${institutionalId||''}"></div>
+        <div class="fg"><label>Section</label>
+          <select id="eu-sec">
+            <option value="">-- Select --</option>
+            <option value="A" ${section==='A'?'selected':''}>Section A</option>
+            <option value="B" ${section==='B'?'selected':''}>Section B</option>
+          </select>
+        </div>
+      </div>` : ''}`,
+      `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+       <button class="btn btn-primary" onclick="AdminView._saveEditUser('${id}','${role}')">Save Changes</button>`
+    );
+  },
+
+  async _saveEditUser(id, role) {
+    const pw = document.getElementById('eu-pw')?.value.trim();
+    const d = {
+      firstName: document.getElementById('eu-fn').value.trim(),
+      lastName:  document.getElementById('eu-ln').value.trim(),
+      email:     document.getElementById('eu-em').value.trim(),
+    };
+    if (role === 'STUDENT') {
+      d.institutionalId = document.getElementById('eu-id')?.value.trim() || null;
+      d.section = document.getElementById('eu-sec')?.value || null;
+    }
+    if (pw) d.password = pw;
+    if (!d.firstName || !d.lastName || !d.email) return toast('Name and email required', 'err');
+    try {
+      await Api.updateUser(id, d);
+      toast('User updated');
+      closeModal();
+      if (role === 'ADMIN') AdminView.admins();
+      else if (role === 'FACULTY') AdminView.faculty();
+      else AdminView._loadStudents();
+    } catch(e) { toast(e.message, 'err'); }
+  },
+
   async _togUser(id,cb){const v=cb.checked;try{await Api.updateUser(id,{isActive:v});toast('User '+(v?'activated':'deactivated'))}catch(e){cb.checked=!v;toast(e.message,'err')}},
   _bulkUpload(){showModal('Bulk Upload Users',`<div class="alert alert-info mb3"><span class="alert-icon">i</span>Upload CSV or Excel. Required columns:<br><strong>firstName, lastName, email, role, institutionalId, section</strong><br>Role: STUDENT / FACULTY / ADMIN &nbsp;|&nbsp; Section: A or B (students only)<br>Student password defaults to institutionalId.</div><div class="fg mb3"><label>Download Template</label><button class="btn btn-secondary btn-sm" onclick="AdminView._dlTemplate()">${ico('dl',13)} CSV Template</button></div><div class="fg"><label>Upload File (CSV or Excel)</label><input type="file" id="bulk-file" accept=".csv,.xlsx,.xls" style="padding:8px"></div><div id="bulk-preview" class="mt3"></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-secondary" onclick="AdminView._parseFile()">${ico('edit')} Parse File</button><button class="btn btn-primary" onclick="AdminView._confirmBulk()">${ico('save')} Confirm Upload</button>`);},
   _dlTemplate(){const csv='firstName,lastName,email,role,institutionalId,section\nJohn,Doe,john@bup.edu.bd,STUDENT,23549009999,A\nJane,Smith,jane@bup.edu.bd,STUDENT,23549009998,B\nProf,Khan,prof@bup.edu.bd,FACULTY,,';const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='users_template.csv';a.click();},

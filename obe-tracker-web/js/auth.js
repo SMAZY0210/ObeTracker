@@ -18,7 +18,21 @@ async function doLogin(){
     btn.disabled=false;btn.textContent='Sign in →';
   }
 }
-async function doLogout(){try{await Api.logout()}catch(_){}Api.clearToken();App.showLogin()}
+async function doLogout(){
+  try{await Api.logout()}catch(_){}
+  Api.clearToken();
+  localStorage.removeItem('obe_user');
+  // Reset login form and button before showing login page
+  const btn=document.getElementById('login-btn');
+  const emailEl=document.getElementById('login-email');
+  const pwEl=document.getElementById('login-password');
+  const errEl=document.getElementById('login-error');
+  if(btn){btn.disabled=false;btn.textContent='Sign in →';}
+  if(emailEl) emailEl.value='';
+  if(pwEl) pwEl.value='';
+  if(errEl) errEl.classList.add('hidden');
+  App.showLogin();
+}
 function showForgot(e){e?.preventDefault();document.getElementById('page-login').style.display='none';document.getElementById('page-login').classList.remove('active');const fp=document.getElementById('page-forgot');fp.style.display='flex';fp.classList.add('active')}
 function showLogin(){document.getElementById('page-forgot').style.display='none';document.getElementById('page-forgot').classList.remove('active');document.getElementById('page-login').style.display='flex';document.getElementById('page-login').classList.add('active')}
 async function sendOtp(){

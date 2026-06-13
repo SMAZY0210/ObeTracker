@@ -867,7 +867,7 @@ const FacultyView = {
         <div class="page-hd"><div class="page-hd-left"><h1>Reports</h1><div class="hd-sub">Download attainment data</div></div></div>
         <div class="card" style="max-width:500px"><div class="card-bd">
           <div class="fg mb4"><label>Course</label>
-            <select id="rep-c">${list.map(c=>`<option value="${c.id}">${c.code} - ${c.name}</option>`).join('')}</select></div>
+            <select id="rep-c"><option value="">-- Select Course --</option>${list.map(c=>`<option value="${c.id}" data-code="${c.code}" data-name="${c.name.replace(/"/g,'&quot;')}">${c.code} - ${c.name}</option>`).join('')}</select></div>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn btn-primary" onclick="FacultyView._genReport('csv')">${ico('dl')} Download CSV</button>
             <button class="btn btn-secondary" onclick="FacultyView._genReport('pdf')">${ico('dl')} Download PDF</button>
@@ -880,6 +880,7 @@ const FacultyView = {
   async _genReport(format='csv') {
     const sel = document.getElementById('rep-c');
     const courseId = sel.value;
+    if (!courseId) return toast('Please select a course first', 'err');
     const courseCode = sel.selectedOptions[0]?.dataset.code || sel.selectedOptions[0]?.text.split(' - ')[0] || 'course';
     const courseName = sel.selectedOptions[0]?.text.split(' - ').slice(1).join(' - ') || '';
     const el = document.getElementById('rep-res');
