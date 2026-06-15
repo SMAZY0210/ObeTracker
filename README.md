@@ -26,15 +26,6 @@ npm run dev
 Open `obe-tracker-web/index.html` directly in Chrome.
 Backend must be running at localhost:3000.
 
-### Flutter (Android)
-```bash
-cd obe-tracker-flutter
-flutter pub get
-flutter run
-```
-Update `lib/core/constants/app_constants.dart` with your PC's local IP
-if running on a physical Android device.
-
 ## Attainment Model
 Binary model — 60% threshold.
 - CO Attained: student scores ≥ 60% of weighted marks across all assessments linked to that CO
