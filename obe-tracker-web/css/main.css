@@ -291,3 +291,95 @@ textarea{resize:vertical;min-height:80px}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE / MOBILE
+   ══════════════════════════════════════════════════════════════ */
+
+/* Mobile top bar + drawer backdrop — hidden on desktop */
+.app-topbar{display:none;align-items:center;gap:12px;position:sticky;top:0;z-index:90;
+  background:var(--surface);border-bottom:1px solid var(--border);padding:10px 14px}
+.tb-burger{display:flex;align-items:center;justify-content:center;width:40px;height:40px;
+  border:1.5px solid var(--border);border-radius:9px;background:var(--surface);
+  color:var(--text2);cursor:pointer;flex-shrink:0}
+.tb-burger:active{background:var(--surface2)}
+.tb-brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;color:var(--text)}
+.sb-backdrop{display:none;position:fixed;inset:0;z-index:99;background:rgba(15,23,42,.5);
+  opacity:0;transition:opacity .25s ease}
+
+/* ── Tablet (≤1024px): stats to 2 columns ── */
+@media (max-width:1024px){
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+  #view-root{padding:26px 24px}
+}
+
+/* ── Sidebar becomes a drawer (≤900px) ── */
+@media (max-width:900px){
+  #sidebar{transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--sh3);width:min(84vw,280px)}
+  body.sb-open #sidebar{transform:none}
+  #app-main{margin-left:0}
+  .app-topbar{display:flex}
+  .sb-backdrop{display:block;pointer-events:none}
+  body.sb-open .sb-backdrop{opacity:1;pointer-events:auto}
+}
+
+/* ── Phone (≤768px) ── */
+@media (max-width:768px){
+  html{font-size:13.5px}
+
+  /* Login stacks vertically */
+  #page-login.page.active{flex-direction:column;min-height:100vh}
+  .login-left{flex:0 0 auto;padding:34px 26px 26px;justify-content:flex-start}
+  .login-left::after{width:280px;height:280px;top:-90px;right:-90px}
+  .login-brand h1{font-size:25px}
+  .login-brand p{margin-bottom:22px}
+  .login-right{padding:30px 22px 44px}
+  .login-form{max-width:none}
+
+  /* View + headers */
+  #view-root{padding:18px 16px;max-width:none}
+  .page-hd{flex-direction:column;align-items:stretch;gap:12px;margin-bottom:20px}
+  .page-hd-actions{padding-top:0;flex-wrap:wrap}
+  .page-hd-actions .btn{flex:1 1 auto;justify-content:center}
+
+  /* Stats: 2-up */
+  .stats-row{grid-template-columns:repeat(2,1fr);gap:10px}
+  .stat-card{padding:16px 16px}
+  .stat-val{font-size:24px}
+
+  /* Forms collapse to single column */
+  .fr2,.fr3{grid-template-columns:1fr}
+  .profile-selector{grid-template-columns:1fr}
+
+  /* Tighter tables + momentum scroll */
+  .tbl-wrap,.matrix-scroll{-webkit-overflow-scrolling:touch}
+  th{padding:9px 12px}
+  td{padding:10px 12px}
+  .card-bd{padding:16px}
+  .card-hd{padding:12px 16px}
+
+  /* Modal fills more of the screen */
+  #modal-overlay{padding:12px}
+  .modal-box,.modal-box.modal-lg{max-width:none;max-height:94vh}
+  #modal-body{padding:18px 16px}
+  .modal-hd{padding:15px 16px}
+  .modal-ft{padding:12px 16px;flex-wrap:wrap}
+  .modal-ft .btn{flex:1 1 auto;justify-content:center}
+
+  /* Prevent iOS zoom-on-focus (needs ≥16px) */
+  input,select,textarea,
+  .field-wrap input,.field-wrap select,.field-wrap textarea{font-size:16px}
+
+  /* Comfortable tap targets */
+  .nav-item{padding:12px 12px;font-size:14px}
+  .btn{padding:10px 16px}
+  .icon-btn{width:36px;height:36px}
+}
+
+/* ── Small phone (≤430px) ── */
+@media (max-width:430px){
+  .stats-row{grid-template-columns:1fr}
+  #toasts{left:12px;right:12px;bottom:12px}
+  .toast{min-width:0;max-width:none}
+  .tab-btn{padding:10px 12px}
+}

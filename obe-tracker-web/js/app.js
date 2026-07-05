@@ -1,3 +1,8 @@
+const Mobile={
+  toggleNav(){document.body.classList.toggle('sb-open')},
+  closeNav(){document.body.classList.remove('sb-open')},
+};
+
 const App={
   user:null,
   init(){
@@ -7,6 +12,7 @@ const App={
     this.showLogin();
   },
   showLogin(){
+    document.body.classList.remove('sb-open');
     document.querySelectorAll('.page').forEach(p=>{p.classList.remove('active');p.style.display=''});
     const lp=document.getElementById('page-login');lp.classList.add('active');lp.style.display='flex';
     setTimeout(()=>document.getElementById('login-email')?.focus(),80);
@@ -44,6 +50,7 @@ const App={
   },
   go(id){
     if(!id)return;
+    Mobile.closeNav();
     document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
     document.getElementById('nav-'+id)?.classList.add('active');
     ({
