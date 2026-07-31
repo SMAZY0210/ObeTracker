@@ -553,12 +553,21 @@ const AdminView={
         </div>
       </div>`;
 
-    // Load sessions
+    // Load sessions. Top dropdown keys off session id (to load courses),
+    // the Batch Year dropdown keys off the year digits (backend matches
+    // institutionalId startsWith on the last two digits of batchYear).
     try {
       const sessions = await Api.getSessions();
       const sel = document.getElementById('en-sess');
       if(sel) sel.innerHTML = '<option value="">-- Select Session --</option>' +
         sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+
+      const bSel = document.getElementById('en-batch');
+      if(bSel) bSel.innerHTML = '<option value="">Select Batch</option>' +
+        sessions.map(s=>{
+          const year = (s.name.match(/\d{4}/)||[])[0] || s.name.replace(/\D+/g,'');
+          return `<option value="${year}">${s.name}</option>`;
+        }).join('');
     } catch(e) {}
 
     AdminView._enrolSelectedIds = new Set();
