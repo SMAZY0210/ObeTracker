@@ -7,6 +7,12 @@ router.use(authenticate, authorize('ADMIN'));
 // Dashboard
 router.get('/dashboard', c.getDashboard);
 
+// Faculties
+router.get('/faculties', c.getFaculties);
+router.post('/faculties', c.createFaculty);
+router.put('/faculties/:id', c.updateFaculty);
+router.delete('/faculties/:id', c.deleteFaculty);
+
 // Departments
 router.get('/departments', c.getDepartments);
 router.post('/departments', c.createDepartment);

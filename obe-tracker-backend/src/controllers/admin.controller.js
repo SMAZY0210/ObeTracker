@@ -1,12 +1,53 @@
 const bcrypt = require('bcrypt');
 const prisma = require('../prisma');
 
+// ── Faculties ────────────────────────────────────────────────
+const getFaculties = async (req, res, next) => {
+  try {
+    const items = await prisma.faculty.findMany({
+      where: { institutionId: req.user.institutionId, deletedAt: null },
+      include: { _count: { select: { departments: true } } },
+    });
+    res.json({ status: 'success', data: items });
+  } catch (err) { next(err); }
+};
+
+const createFaculty = async (req, res, next) => {
+  try {
+    const { name, code } = req.body;
+    const item = await prisma.faculty.create({
+      data: { name, code: code.toUpperCase(), institutionId: req.user.institutionId },
+    });
+    res.status(201).json({ status: 'success', data: item });
+  } catch (err) { next(err); }
+};
+
+const updateFaculty = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, code } = req.body;
+    const item = await prisma.faculty.update({ where: { id }, data: { name, code: code?.toUpperCase() } });
+    res.json({ status: 'success', data: item });
+  } catch (err) { next(err); }
+};
+
+const deleteFaculty = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await prisma.faculty.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+    res.json({ status: 'success', data: { message: 'Faculty deactivated' } });
+  } catch (err) { next(err); }
+};
+
 // ── Departments ──────────────────────────────────────────────
 const getDepartments = async (req, res, next) => {
   try {
     const items = await prisma.department.findMany({
       where: { institutionId: req.user.institutionId, deletedAt: null },
-      include: { _count: { select: { programs: true } } },
+      include: {
+        faculty: { select: { id: true, name: true, code: true } },
+        _count: { select: { programs: true } },
+      },
     });
     res.json({ status: 'success', data: items });
   } catch (err) { next(err); }
@@ -14,9 +55,9 @@ const getDepartments = async (req, res, next) => {
 
 const createDepartment = async (req, res, next) => {
   try {
-    const { name, code } = req.body;
+    const { name, code, facultyId } = req.body;
     const item = await prisma.department.create({
-      data: { name, code: code.toUpperCase(), institutionId: req.user.institutionId },
+      data: { name, code: code.toUpperCase(), facultyId: facultyId || null, institutionId: req.user.institutionId },
     });
     res.status(201).json({ status: 'success', data: item });
   } catch (err) { next(err); }
@@ -25,8 +66,11 @@ const createDepartment = async (req, res, next) => {
 const updateDepartment = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, code } = req.body;
-    const item = await prisma.department.update({ where: { id }, data: { name, code: code?.toUpperCase() } });
+    const { name, code, facultyId } = req.body;
+    const item = await prisma.department.update({
+      where: { id },
+      data: { name, code: code?.toUpperCase(), ...(facultyId !== undefined && { facultyId: facultyId || null }) },
+    });
     res.json({ status: 'success', data: item });
   } catch (err) { next(err); }
 };
@@ -611,6 +655,7 @@ const removeEnrolment = async (req, res, next) => {
 };
 
 module.exports = {
+  getFaculties, createFaculty, updateFaculty, deleteFaculty,
   getDepartments, createDepartment, updateDepartment, deleteDepartment,
   getPrograms, createProgram, updateProgram, deleteProgram,
   getSessions, createSession, updateSession,

@@ -69,6 +69,7 @@ model Institution {
   updatedAt  DateTime @updatedAt
 
   users                User[]
+  faculties            Faculty[]
   departments          Department[]
   sessions             Session[]
   attainmentThresholds AttainmentThreshold[]
@@ -124,7 +125,7 @@ model JwtBlacklist {
   @@index([jti])
 }
 
-model Department {
+model Faculty {
   id            String    @id @default(cuid())
   institutionId String
   name          String
@@ -134,7 +135,25 @@ model Department {
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
+  institution Institution  @relation(fields: [institutionId], references: [id])
+  departments Department[]
+
+  @@unique([institutionId, code])
+}
+
+model Department {
+  id            String    @id @default(cuid())
+  institutionId String
+  facultyId     String?
+  name          String
+  code          String
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
   institution Institution @relation(fields: [institutionId], references: [id])
+  faculty     Faculty?    @relation(fields: [facultyId], references: [id])
   programs    Program[]
 
   @@unique([institutionId, code])

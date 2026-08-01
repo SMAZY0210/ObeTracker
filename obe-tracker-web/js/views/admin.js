@@ -18,35 +18,64 @@ const AdminView={
   // ── Structure ──────────────────────────────────────────────
   async structure(){
     document.getElementById('view-root').innerHTML=`
-      <div class="page-hd"><div class="page-hd-left"><h1>Institutional Structure</h1><div class="hd-sub">Departments · Programs · Sessions</div></div></div>
+      <div class="page-hd"><div class="page-hd-left"><h1>Institutional Structure</h1><div class="hd-sub">Faculties · Departments · Programs · Sessions</div></div></div>
       <div id="struct">
-        <div class="tab-bar"><button class="tab-btn active" data-tab="td">Departments</button><button class="tab-btn" data-tab="tp">Programs</button><button class="tab-btn" data-tab="ts">Sessions</button></div>
-        <div class="tab-pane active" id="td"></div><div class="tab-pane" id="tp"></div><div class="tab-pane" id="ts"></div>
+        <div class="tab-bar"><button class="tab-btn active" data-tab="tf">Faculties</button><button class="tab-btn" data-tab="td">Departments</button><button class="tab-btn" data-tab="tp">Programs</button><button class="tab-btn" data-tab="ts">Sessions</button></div>
+        <div class="tab-pane active" id="tf"></div><div class="tab-pane" id="td"></div><div class="tab-pane" id="tp"></div><div class="tab-pane" id="ts"></div>
       </div>`;
-    initTabs('struct');this._depts();this._progs();this._sessions();
+    initTabs('struct');this._faculties();this._depts();this._progs();this._sessions();
   },
+
+  async _faculties(){
+    const el=document.getElementById('tf');
+    el.innerHTML=`<div class="flex-between mb3"><span class="sec-title">Faculties</span><button class="btn btn-primary btn-sm" onclick="AdminView._addFaculty()">${ico('plus')} Add</button></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Departments</th><th>Status</th><th class="td-r">Actions</th></tr></thead><tbody id="ftb">${tdLoad(5)}</tbody></table></div>`;
+    try{
+      const l=await Api.getFaculties();
+      document.getElementById('ftb').innerHTML=l.length?l.map(f=>`<tr>
+        <td><span class="code-badge">${f.code}</span></td><td class="fw7">${f.name}</td>
+        <td class="text-muted">${f._count?.departments??0}</td>
+        <td><span class="badge ${f.isActive?'bg-green':'bg-gray'}">${f.isActive?'Active':'Inactive'}</span></td>
+        <td class="td-r"><button class="btn btn-secondary btn-xs" onclick="AdminView._editFaculty('${f.id}','${f.name.replace(/'/g,"\\'")}','${f.code}')">${ico('edit',13)} Edit</button></td>
+      </tr>`).join(''):tdEmpty('No faculties yet',5);
+    }catch(e){document.getElementById('ftb').innerHTML=tdEmpty(e.message,5)}
+  },
+  _addFaculty(){showModal('Add Faculty',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="mf-name" placeholder="e.g. Faculty of Science and Technology"></div><div class="fg"><label>Code</label><input id="mf-code" placeholder="e.g. FST" style="text-transform:uppercase"></div></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveFaculty()">${ico('save')} Save</button>`)},
+  async _saveFaculty(){const name=document.getElementById('mf-name').value.trim(),code=document.getElementById('mf-code').value.trim();if(!name||!code)return toast('Name and code required','err');
+    try{await Api.createFaculty({name,code});toast('Faculty added');closeModal();this._faculties()}catch(e){toast(e.message,'err')}},
+  _editFaculty(id,name,code){showModal('Edit Faculty',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="mf-name" value="${name}"></div><div class="fg"><label>Code</label><input id="mf-code" value="${code}"></div></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._updFaculty('${id}')">${ico('save')} Save</button>`)},
+  async _updFaculty(id){const name=document.getElementById('mf-name').value.trim(),code=document.getElementById('mf-code').value.trim();
+    try{await Api.updateFaculty(id,{name,code});toast('Updated');closeModal();this._faculties()}catch(e){toast(e.message,'err')}},
 
   async _depts(){
     const el=document.getElementById('td');
     el.innerHTML=`<div class="flex-between mb3"><span class="sec-title">Departments</span><button class="btn btn-primary btn-sm" onclick="AdminView._addDept()">${ico('plus')} Add</button></div>
-      <div class="tbl-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Status</th><th class="td-r">Actions</th></tr></thead><tbody id="dtb">${tdLoad(4)}</tbody></table></div>`;
+      <div class="tbl-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Faculty</th><th>Status</th><th class="td-r">Actions</th></tr></thead><tbody id="dtb">${tdLoad(5)}</tbody></table></div>`;
     try{
       const l=await Api.getDepartments();
       document.getElementById('dtb').innerHTML=l.length?l.map(d=>`<tr>
         <td><span class="code-badge">${d.code}</span></td><td class="fw7">${d.name}</td>
+        <td class="text-muted">${d.faculty?.name||'-'}</td>
         <td><span class="badge ${d.isActive?'bg-green':'bg-gray'}">${d.isActive?'Active':'Inactive'}</span></td>
-        <td class="td-r"><button class="btn btn-secondary btn-xs" onclick="AdminView._editDept('${d.id}','${d.name}','${d.code}')">${ico('edit',13)} Edit</button></td>
-      </tr>`).join(''):tdEmpty('No departments yet',4);
-    }catch(e){document.getElementById('dtb').innerHTML=tdEmpty(e.message,4)}
+        <td class="td-r"><button class="btn btn-secondary btn-xs" onclick="AdminView._editDept('${d.id}','${d.name.replace(/'/g,"\\'")}','${d.code}','${d.facultyId||''}')">${ico('edit',13)} Edit</button></td>
+      </tr>`).join(''):tdEmpty('No departments yet',5);
+    }catch(e){document.getElementById('dtb').innerHTML=tdEmpty(e.message,5)}
   },
-  _addDept(){showModal('Add Department',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="md-name" placeholder="e.g. Information and Communication Engineering"></div><div class="fg"><label>Code</label><input id="md-code" placeholder="e.g. ICE" style="text-transform:uppercase"></div></div>`,
+  _facSelect(sel){return `<div class="fg mb3"><label>Faculty</label><select id="md-faculty"><option value="">-- None --</option>${(AdminView._facCache||[]).map(f=>`<option value="${f.id}" ${f.id===sel?'selected':''}>${f.name}</option>`).join('')}</select></div>`},
+  async _addDept(){
+    try{ AdminView._facCache=await Api.getFaculties(); }catch(_){ AdminView._facCache=[]; }
+    showModal('Add Department',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="md-name" placeholder="e.g. Information and Communication Engineering"></div><div class="fg"><label>Code</label><input id="md-code" placeholder="e.g. ICE" style="text-transform:uppercase"></div></div>${AdminView._facSelect('')}`,
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveDept()">${ico('save')} Save</button>`)},
-  async _saveDept(){const name=document.getElementById('md-name').value.trim(),code=document.getElementById('md-code').value.trim();if(!name||!code)return toast('Name and code required','err');
-    try{await Api.createDepartment({name,code});toast('Department added');closeModal();this._depts()}catch(e){toast(e.message,'err')}},
-  _editDept(id,name,code){showModal('Edit Department',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="md-name" value="${name}"></div><div class="fg"><label>Code</label><input id="md-code" value="${code}"></div></div>`,
+  async _saveDept(){const name=document.getElementById('md-name').value.trim(),code=document.getElementById('md-code').value.trim(),facultyId=document.getElementById('md-faculty')?.value||null;if(!name||!code)return toast('Name and code required','err');
+    try{await Api.createDepartment({name,code,facultyId});toast('Department added');closeModal();this._depts()}catch(e){toast(e.message,'err')}},
+  async _editDept(id,name,code,facultyId){
+    try{ AdminView._facCache=await Api.getFaculties(); }catch(_){ AdminView._facCache=[]; }
+    showModal('Edit Department',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="md-name" value="${name}"></div><div class="fg"><label>Code</label><input id="md-code" value="${code}"></div></div>${AdminView._facSelect(facultyId)}`,
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._updDept('${id}')">${ico('save')} Save</button>`)},
-  async _updDept(id){const name=document.getElementById('md-name').value.trim(),code=document.getElementById('md-code').value.trim();
-    try{await Api.updateDepartment(id,{name,code});toast('Updated');closeModal();this._depts()}catch(e){toast(e.message,'err')}},
+  async _updDept(id){const name=document.getElementById('md-name').value.trim(),code=document.getElementById('md-code').value.trim(),facultyId=document.getElementById('md-faculty')?.value||null;
+    try{await Api.updateDepartment(id,{name,code,facultyId});toast('Updated');closeModal();this._depts()}catch(e){toast(e.message,'err')}},
 
   async _progs(){
     const el=document.getElementById('tp');

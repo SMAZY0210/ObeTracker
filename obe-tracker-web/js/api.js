@@ -39,6 +39,10 @@ const Api = {
 
   // Admin
   getDashboard()                      { return this.get('/admin/dashboard'); },
+  getFaculties()                      { return this.get('/admin/faculties'); },
+  createFaculty(d)                    { return this.post('/admin/faculties', d); },
+  updateFaculty(id, d)                { return this.put('/admin/faculties/' + id, d); },
+  deleteFaculty(id)                   { return this.delete('/admin/faculties/' + id); },
   getDepartments()                    { return this.get('/admin/departments'); },
   createDepartment(d)                 { return this.post('/admin/departments', d); },
   updateDepartment(id, d)             { return this.put('/admin/departments/' + id, d); },
