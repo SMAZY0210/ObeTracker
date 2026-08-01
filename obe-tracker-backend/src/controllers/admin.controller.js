@@ -125,6 +125,10 @@ const getSessions = async (req, res, next) => {
     const items = await prisma.session.findMany({
       where: { institutionId: req.user.institutionId },
       orderBy: { startDate: 'desc' },
+      include: {
+        department: { select: { id: true, name: true, code: true } },
+        _count: { select: { students: true } },
+      },
     });
     res.json({ status: 'success', data: items });
   } catch (err) { next(err); }
@@ -132,9 +136,15 @@ const getSessions = async (req, res, next) => {
 
 const createSession = async (req, res, next) => {
   try {
-    const { name, startDate, endDate } = req.body;
+    const { name, startDate, endDate, departmentId } = req.body;
     const item = await prisma.session.create({
-      data: { name, startDate: new Date(startDate), endDate: endDate ? new Date(endDate) : null, institutionId: req.user.institutionId },
+      data: {
+        name,
+        departmentId: departmentId || null,
+        startDate: new Date(startDate),
+        endDate: endDate ? new Date(endDate) : null,
+        institutionId: req.user.institutionId,
+      },
     });
     res.status(201).json({ status: 'success', data: item });
   } catch (err) { next(err); }
@@ -143,7 +153,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, startDate, endDate, status } = req.body;
+    const { name, startDate, endDate, status, departmentId } = req.body;
     const session = await prisma.session.findUnique({ where: { id } });
 
     let frozenThresholds = session.frozenThresholds;
@@ -157,12 +167,26 @@ const updateSession = async (req, res, next) => {
       where: { id },
       data: {
         name, status,
+        ...(departmentId !== undefined && { departmentId: departmentId || null }),
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate ? new Date(endDate) : undefined,
         frozenThresholds,
       },
     });
     res.json({ status: 'success', data: item });
+  } catch (err) { next(err); }
+};
+
+const deleteSession = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    // Guard: a batch with students attached cannot be deleted.
+    const count = await prisma.user.count({ where: { sessionId: id, deletedAt: null } });
+    if (count > 0) {
+      return res.status(409).json({ status: 'error', error: `Cannot delete: ${count} student(s) still in this batch. Move or remove them first.` });
+    }
+    await prisma.session.delete({ where: { id } });
+    res.json({ status: 'success', data: { message: 'Session deleted' } });
   } catch (err) { next(err); }
 };
 
@@ -233,7 +257,7 @@ const assignFaculty = async (req, res, next) => {
 // ── User Management ──────────────────────────────────────────
 const getUsers = async (req, res, next) => {
   try {
-    const { role, isActive, search, batchYear, section } = req.query;
+    const { role, isActive, search, sessionId, batchYear, section } = req.query;
 
     const users = await prisma.user.findMany({
       where: {
@@ -241,11 +265,13 @@ const getUsers = async (req, res, next) => {
         deletedAt: null,
         ...(role && { role }),
         ...(isActive !== undefined && { isActive: isActive === 'true' }),
-        // Filter students by batch year extracted from institutionalId prefix
-        // e.g. institutionalId "23549009001" starts with "23" = Batch 2023
-        ...(batchYear && {
-          institutionalId: { startsWith: batchYear.toString().slice(-2) },
-        }),
+        // Filter students by their batch (session). sessionId is the new,
+        // department-safe key. batchYear is kept only as a legacy fallback.
+        ...(sessionId
+          ? { sessionId }
+          : batchYear
+            ? { institutionalId: { startsWith: batchYear.toString().slice(-2) } }
+            : {}),
         ...(section && { section }),
         ...(search && {
           OR: [
@@ -259,6 +285,8 @@ const getUsers = async (req, res, next) => {
       select: {
         id: true, email: true, role: true, firstName: true, lastName: true,
         institutionalId: true, section: true, isActive: true, lastLoginAt: true, createdAt: true,
+        sessionId: true,
+        session: { select: { id: true, name: true, departmentId: true } },
       },
       orderBy: { institutionalId: 'asc' },
     });
@@ -268,7 +296,7 @@ const getUsers = async (req, res, next) => {
 
 const createUser = async (req, res, next) => {
   try {
-    const { email, role, firstName, lastName, institutionalId, section, password } = req.body;
+    const { email, role, firstName, lastName, institutionalId, section, sessionId, password } = req.body;
     if (!email || !role || !firstName || !lastName) {
       return res.status(400).json({ status: 'error', error: 'email, role, firstName and lastName are required' });
     }
@@ -284,6 +312,7 @@ const createUser = async (req, res, next) => {
         email: email.toLowerCase(), role, firstName, lastName,
         institutionalId: institutionalId || null,
         section: section || null,
+        sessionId: sessionId || null,
         passwordHash, institutionId: req.user.institutionId,
       },
       select: { id: true, email: true, role: true, firstName: true, lastName: true },
@@ -295,13 +324,14 @@ const createUser = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firstName, lastName, email, institutionalId, section, isActive, password } = req.body;
+    const { firstName, lastName, email, institutionalId, section, sessionId, isActive, password } = req.body;
     const data = {};
     if (firstName !== undefined) data.firstName = firstName;
     if (lastName  !== undefined) data.lastName  = lastName;
     if (email     !== undefined) data.email      = email;
     if (institutionalId !== undefined) data.institutionalId = institutionalId;
     if (section   !== undefined) data.section    = section;
+    if (sessionId !== undefined) data.sessionId  = sessionId || null;
     if (isActive  !== undefined) data.isActive   = isActive;
     if (password) {
       const bcrypt = require('bcrypt');
@@ -500,7 +530,7 @@ const getAttainmentReport = async (req, res, next) => {
 
 const bulkCreateUsers = async (req, res, next) => {
   try {
-    const { users } = req.body; // array of { firstName, lastName, email, role, institutionalId }
+    const { users, sessionId } = req.body; // sessionId = the batch the whole file joins (students)
     if (!Array.isArray(users) || !users.length) {
       return res.status(400).json({ status: 'error', error: 'No users provided' });
     }
@@ -520,6 +550,7 @@ const bulkCreateUsers = async (req, res, next) => {
           where: { email: { equals: u.email.trim(), mode: 'insensitive' } },
         });
         if (existing) { results.skipped++; continue; }
+        const isStudent = u.role.toUpperCase() === 'STUDENT';
         await prisma.user.create({
           data: {
             institutionId: req.user.institutionId,
@@ -530,6 +561,7 @@ const bulkCreateUsers = async (req, res, next) => {
             lastName: u.lastName.trim(),
             institutionalId: u.institutionalId?.trim() || null,
             section: u.section?.trim() || null,
+            sessionId: isStudent ? (sessionId || null) : null,
           },
         });
         results.created++;
@@ -605,7 +637,7 @@ const getEnrolments = async (req, res, next) => {
 
 const enrolStudents = async (req, res, next) => {
   try {
-    const { courseId, studentIds, batchYear, section } = req.body;
+    const { courseId, studentIds, sessionId, batchYear, section } = req.body;
     if (!courseId) return res.status(400).json({ status: 'error', error: 'courseId required' });
 
     // Get course to find programId
@@ -623,9 +655,11 @@ const enrolStudents = async (req, res, next) => {
         select: { id: true },
       });
     } else {
-      // Batch enrolment
-      const where = { role: 'STUDENT', deletedAt: null };
-      if (batchYear) where.institutionalId = { startsWith: String(batchYear).slice(-2) };
+      // Batch enrolment. Match on the session (batch) link. Only active
+      // students can be enrolled; a dropped student is inactive and skipped.
+      const where = { role: 'STUDENT', deletedAt: null, isActive: true };
+      if (sessionId) where.sessionId = sessionId;
+      else if (batchYear) where.institutionalId = { startsWith: String(batchYear).slice(-2) };
       if (section) where.section = section;
       students = await prisma.user.findMany({ where, select: { id: true } });
     }
@@ -658,7 +692,7 @@ module.exports = {
   getFaculties, createFaculty, updateFaculty, deleteFaculty,
   getDepartments, createDepartment, updateDepartment, deleteDepartment,
   getPrograms, createProgram, updateProgram, deleteProgram,
-  getSessions, createSession, updateSession,
+  getSessions, createSession, updateSession, deleteSession,
   getCourses, createCourse, updateCourse, deleteCourse, assignFaculty,
   getUsers, createUser, updateUser, bulkCreateUsers,
   getEnrolments, enrolStudents, removeEnrolment,

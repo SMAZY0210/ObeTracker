@@ -94,21 +94,32 @@ const AdminView={
   async _sessions(){
     const el=document.getElementById('ts');
     el.innerHTML=`<div class="flex-between mb3"><span class="sec-title">Sessions / Batches</span><button class="btn btn-primary btn-sm" onclick="AdminView._addSession()">${ico('plus')} Add</button></div>
-      <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Start</th><th>Status</th><th class="td-r">Actions</th></tr></thead><tbody id="stb">${tdLoad(4)}</tbody></table></div>`;
+      <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Department</th><th>Students</th><th>Start</th><th>Status</th><th class="td-r">Actions</th></tr></thead><tbody id="stb">${tdLoad(6)}</tbody></table></div>`;
     try{
       const l=await Api.getSessions();const sc={ACTIVE:'bg-green',DRAFT:'bg-gray',CLOSED:'bg-amber',ARCHIVED:'bg-gray'};
-      document.getElementById('stb').innerHTML=l.length?l.map(s=>`<tr><td class="fw7">${s.name}</td><td class="text-muted">${new Date(s.startDate).getFullYear()}</td>
+      document.getElementById('stb').innerHTML=l.length?l.map(s=>`<tr><td class="fw7">${s.name}</td>
+        <td class="text-muted">${s.department?.name||'<span style="color:var(--text3)">Unassigned</span>'}</td>
+        <td class="text-muted">${s._count?.students??0}</td>
+        <td class="text-muted">${new Date(s.startDate).getFullYear()}</td>
         <td><span class="badge ${sc[s.status]||'bg-gray'}">${s.status}</span></td>
-        <td class="td-r"><button class="btn btn-secondary btn-xs" onclick="AdminView._editSession('${s.id}','${s.name}','${s.status}')">${ico('edit',13)} Status</button></td></tr>`).join(''):tdEmpty('No sessions yet',4);
-    }catch(e){document.getElementById('stb').innerHTML=tdEmpty(e.message,4)}
+        <td class="td-r" style="white-space:nowrap"><button class="btn btn-secondary btn-xs" style="margin-right:4px" onclick="AdminView._editSession('${s.id}','${s.name.replace(/'/g,"\\'")}','${s.status}','${s.departmentId||''}')">${ico('edit',13)} Edit</button>
+        <button class="icon-btn danger" onclick="AdminView._delSession('${s.id}','${s.name.replace(/'/g,"\\'")}',${s._count?.students??0})">${ico('trash',13)}</button></td></tr>`).join(''):tdEmpty('No sessions yet',6);
+    }catch(e){document.getElementById('stb').innerHTML=tdEmpty(e.message,6)}
   },
-  _addSession(){showModal('Add Session',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="ms-name" placeholder="e.g. Batch 2026"></div><div class="fg"><label>Start Date</label><input type="date" id="ms-date"></div></div>`,
+  _sessDeptSelect(sel){return `<div class="fg"><label>Department</label><select id="ms-dept"><option value="">-- Unassigned --</option>${(AdminView._sDeptCache||[]).map(d=>`<option value="${d.id}" ${d.id===sel?'selected':''}>${d.name}</option>`).join('')}</select></div>`},
+  async _addSession(){
+    try{ AdminView._sDeptCache=await Api.getDepartments(); }catch(_){ AdminView._sDeptCache=[]; }
+    showModal('Add Session',`<div class="form-row fr2"><div class="fg"><label>Name</label><input id="ms-name" placeholder="e.g. ICE 2026"></div><div class="fg"><label>Start Date</label><input type="date" id="ms-date"></div></div>${AdminView._sessDeptSelect('')}`,
     `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveSession()">${ico('save')} Save</button>`)},
-  async _saveSession(){const name=document.getElementById('ms-name').value.trim(),startDate=document.getElementById('ms-date').value;if(!name||!startDate)return toast('Name and date required','err');
-    try{await Api.createSession({name,startDate});toast('Session added');closeModal();this._sessions()}catch(e){toast(e.message,'err')}},
-  _editSession(id,name,cur){showModal(`Status - ${name}`,`<div class="fg"><label>Status</label><select id="ms-status">${['DRAFT','ACTIVE','CLOSED','ARCHIVED'].map(s=>`<option value="${s}" ${s===cur?'selected':''}>${s}</option>`).join('')}</select></div>`,
-    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveSessionStatus('${id}')">${ico('save')} Save</button>`)},
-  async _saveSessionStatus(id){const status=document.getElementById('ms-status').value;try{await Api.updateSession(id,{status});toast('Updated');closeModal();this._sessions()}catch(e){toast(e.message,'err')}},
+  async _saveSession(){const name=document.getElementById('ms-name').value.trim(),startDate=document.getElementById('ms-date').value,departmentId=document.getElementById('ms-dept')?.value||null;if(!name||!startDate)return toast('Name and date required','err');
+    try{await Api.createSession({name,startDate,departmentId});toast('Session added');closeModal();this._sessions()}catch(e){toast(e.message,'err')}},
+  async _editSession(id,name,cur,deptId){
+    try{ AdminView._sDeptCache=await Api.getDepartments(); }catch(_){ AdminView._sDeptCache=[]; }
+    showModal(`Edit - ${name}`,`${AdminView._sessDeptSelect(deptId)}<div class="fg mt2"><label>Status</label><select id="ms-status">${['DRAFT','ACTIVE','CLOSED','ARCHIVED'].map(s=>`<option value="${s}" ${s===cur?'selected':''}>${s}</option>`).join('')}</select></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="AdminView._saveSessionEdit('${id}')">${ico('save')} Save</button>`)},
+  async _saveSessionEdit(id){const status=document.getElementById('ms-status').value,departmentId=document.getElementById('ms-dept')?.value||null;try{await Api.updateSession(id,{status,departmentId});toast('Updated');closeModal();this._sessions()}catch(e){toast(e.message,'err')}},
+  async _delSession(id,name,count){if(count>0)return toast(`Cannot delete "${name}": ${count} student(s) still in this batch`,'err');if(!confirm(`Delete session "${name}"?`))return;
+    try{await Api.deleteSession(id);toast('Session deleted');this._sessions()}catch(e){toast(e.message,'err')}},
 
   // ── Courses ────────────────────────────────────────────────
   async courses(){
@@ -391,12 +402,11 @@ const AdminView={
   async students(){
     // Load departments and sessions for filter dropdowns
     let deptOptions = '<option value="">Select Department</option>';
-    let batchOptions = '<option value="">Select Batch</option>';
     try {
       const [depts, sessions] = await Promise.all([Api.getDepartments(), Api.getSessions()]);
+      AdminView._stuSessions = sessions;
       deptOptions += depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
-      batchOptions += sessions.map(s=>`<option value="${s.name.replace(/\D+/,'')}">${s.name}</option>`).join('');
-    } catch(_) {}
+    } catch(_) { AdminView._stuSessions = []; }
 
     document.getElementById('view-root').innerHTML=`
       <div class="page-hd">
@@ -408,11 +418,11 @@ const AdminView={
       </div>
       <div class="filter-bar" style="margin-bottom:12px">
         <div class="search-wrap" style="flex:2"><input id="uq-students" placeholder="Search name, email or ID..." oninput="AdminView._filterTab('students')"></div>
-        <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:130px">
-          ${batchOptions}
-        </select>
-        <select id="uf-dept-s" onchange="AdminView._loadStudents()" style="min-width:180px">
+        <select id="uf-dept-s" onchange="AdminView._stuFillBatches();AdminView._loadStudents()" style="min-width:180px">
           ${deptOptions}
+        </select>
+        <select id="uf-batch-s" onchange="AdminView._loadStudents()" style="min-width:150px">
+          <option value="">Select department first</option>
         </select>
         <select id="uf-section-s" onchange="AdminView._loadStudents()" style="min-width:120px">
           <option value="">Select Section</option>
@@ -424,29 +434,38 @@ const AdminView={
         <th>Name</th><th>Student ID</th><th>Batch</th><th>Section</th>
         <th style="text-align:center">Active</th><th>Last Login</th><th class="td-r">Attainment</th>
       </tr></thead><tbody id="utb-students">
-        <tr><td colspan="7" class="td-load text-muted">Select a batch or department to view students.</td></tr>
+        <tr><td colspan="7" class="td-load text-muted">Select a department or batch to view students.</td></tr>
       </tbody></table></div>`;
+  },
+
+  _stuFillBatches(){
+    const dept=document.getElementById('uf-dept-s')?.value;
+    const b=document.getElementById('uf-batch-s');
+    if(!b)return;
+    const ss=(AdminView._stuSessions||[]).filter(s=>s.departmentId===dept);
+    b.innerHTML=dept?('<option value="">All batches in department</option>'+ss.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')):'<option value="">Select department first</option>';
   },
 
   async _loadStudents(){
     const el=document.getElementById('utb-students'); if(!el) return;
-    const batch=document.getElementById('uf-batch-s')?.value;
     const dept=document.getElementById('uf-dept-s')?.value;
+    const sessionId=document.getElementById('uf-batch-s')?.value;
     const section=document.getElementById('uf-section-s')?.value;
 
     // Don't load until at least one filter is chosen
-    if(!batch && !dept && !section){
-      el.innerHTML='<tr><td colspan="7" class="td-load text-muted">Select a batch or department to view students.</td></tr>';
+    if(!dept && !sessionId && !section){
+      el.innerHTML='<tr><td colspan="7" class="td-load text-muted">Select a department or batch to view students.</td></tr>';
       AdminView._ul_students=[];
       return;
     }
     el.innerHTML=tdLoad(7);
     try{
       const params={role:'STUDENT'};
-      if(batch) params.batchYear=batch;
+      if(sessionId) params.sessionId=sessionId;
       if(section) params.section=section;
-      // dept filtering is client-side after fetch (backend filters by batchYear/section only)
       let l=await Api.getUsers(params);
+      // Department chosen but no specific batch: keep students whose batch is in that department.
+      if(dept && !sessionId) l=l.filter(u=>u.session?.departmentId===dept);
       AdminView._ul_students=l;
       AdminView._renderTab('students',l);
     }catch(e){if(el)el.innerHTML=tdEmpty(e.message,7);}
@@ -476,7 +495,7 @@ const AdminView={
       </tr>`).join('');
     } else {
       el.innerHTML=list.map(u=>{
-        const batch=u.institutionalId?'Batch 20'+u.institutionalId.substring(0,2):'--';
+        const batch=u.session?.name || (u.institutionalId?'Batch 20'+u.institutionalId.substring(0,2):'--');
         const sec=u.section?'<span class="badge bg-gray">Section '+u.section+'</span>':'--';
         return `<tr>
           <td class="fw7">${u.firstName} ${u.lastName}</td>
@@ -488,7 +507,7 @@ const AdminView={
           </td>
           <td class="text-muted text-sm">${u.lastLoginAt?new Date(u.lastLoginAt).toLocaleDateString():'Never'}</td>
           <td class="td-r" style="white-space:nowrap">
-            <button class="btn btn-secondary btn-xs" style="margin-right:4px" onclick="AdminView._editUser('${u.id}','${u.firstName}','${u.lastName}','${u.email}','${u.role}','${u.institutionalId||''}','${u.section||''}','')">Edit</button>
+            <button class="btn btn-secondary btn-xs" style="margin-right:4px" onclick="AdminView._editUser('${u.id}','${u.firstName}','${u.lastName}','${u.email}','${u.role}','${u.institutionalId||''}','${u.section||''}','${u.sessionId||''}')">Edit</button>
             <button class="btn btn-primary btn-xs" onclick="AdminView._viewStuAtt('${u.id}','${u.firstName} ${u.lastName}')">Attainment</button>
           </td>
         </tr>`;
@@ -582,9 +601,9 @@ const AdminView={
         </div>
       </div>`;
 
-    // Load sessions. Top dropdown keys off session id (to load courses),
-    // the Batch Year dropdown keys off the year digits (backend matches
-    // institutionalId startsWith on the last two digits of batchYear).
+    // Load sessions. Top dropdown selects a session to list its courses.
+    // The Batch dropdown carries the session id, so batch enrolment matches
+    // on the batch link (department-safe) instead of ID digits.
     try {
       const sessions = await Api.getSessions();
       const sel = document.getElementById('en-sess');
@@ -593,10 +612,7 @@ const AdminView={
 
       const bSel = document.getElementById('en-batch');
       if(bSel) bSel.innerHTML = '<option value="">Select Batch</option>' +
-        sessions.map(s=>{
-          const year = (s.name.match(/\d{4}/)||[])[0] || s.name.replace(/\D+/g,'');
-          return `<option value="${year}">${s.name}</option>`;
-        }).join('');
+        sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
     } catch(e) {}
 
     AdminView._enrolSelectedIds = new Set();
@@ -651,13 +667,13 @@ const AdminView={
 
   async _enrolBatch(){
     const courseId = document.getElementById('en-course')?.value;
-    const batchYear = document.getElementById('en-batch')?.value;
+    const sessionId = document.getElementById('en-batch')?.value;
     const section = document.getElementById('en-section')?.value;
     const resEl = document.getElementById('en-result');
     if(!courseId) return toast('Select a course first','err');
     resEl.innerHTML=`<div class="loading-box" style="padding:8px 0;justify-content:flex-start"><div class="spin"></div> Enrolling...</div>`;
     try{
-      const r = await Api.enrolStudents({ courseId, batchYear, section });
+      const r = await Api.enrolStudents({ courseId, sessionId, section });
       resEl.innerHTML=`<div class="alert alert-success"><span class="alert-icon">✓</span>Enrolled ${r.enrolled} student(s). ${r.skipped} already enrolled.</div>`;
       await AdminView._enrolRefreshList();
     }catch(e){ resEl.innerHTML=`<div class="alert alert-error"><span class="alert-icon">⚠</span>${e.message}</div>`; }
@@ -766,7 +782,7 @@ const AdminView={
     try{await Api.deleteProgramOutcome(id);toast('Deleted');this._loadPOs()}catch(e){toast(e.message,'err')}},
 
   // ── Thresholds ─────────────────────────────────────────────
-  _editUser(id, firstName, lastName, email, role, institutionalId, section) {
+  _editUser(id, firstName, lastName, email, role, institutionalId, section, sessionId) {
     const isStudent = role === 'STUDENT';
     showModal('Edit User', `
       <div class="form-row fr2 mb3">
@@ -777,8 +793,14 @@ const AdminView={
       <div class="fg mb3"><label>New Password <span class="text-muted">(leave blank to keep current)</span></label>
         <input id="eu-pw" type="password" placeholder="Leave blank to keep unchanged"></div>
       ${isStudent ? `
-      <div class="form-row fr2 mb3">
-        <div class="fg"><label>Student ID</label><input id="eu-id" value="${institutionalId||''}"></div>
+      <div class="fg mb3"><label>Student ID</label><input id="eu-id" value="${institutionalId||''}"></div>
+      <div class="form-row fr3 mb3">
+        <div class="fg"><label>Department</label>
+          <select id="eu-dept" onchange="AdminView._euFillBatches()"><option value="">Loading...</option></select>
+        </div>
+        <div class="fg"><label>Batch</label>
+          <select id="eu-batch"><option value="">-- Select department first --</option></select>
+        </div>
         <div class="fg"><label>Section</label>
           <select id="eu-sec">
             <option value="">-- Select --</option>
@@ -786,10 +808,34 @@ const AdminView={
             <option value="B" ${section==='B'?'selected':''}>Section B</option>
           </select>
         </div>
-      </div>` : ''}`,
+      </div>
+      <div class="text-muted text-sm mb3">Clearing the batch leaves the student unassigned. To drop a student, set them inactive instead (their batch stays).</div>` : ''}`,
       `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
        <button class="btn btn-primary" onclick="AdminView._saveEditUser('${id}','${role}')">Save Changes</button>`
     );
+    if (isStudent) {
+      setTimeout(() => {
+        Promise.all([Api.getDepartments(), Api.getSessions()]).then(([depts, sessions]) => {
+          AdminView._euSessions = sessions;
+          const cur = sessions.find(s => s.id === sessionId);
+          const curDept = cur ? cur.departmentId : '';
+          const dSel = document.getElementById('eu-dept');
+          if (dSel) dSel.innerHTML = '<option value="">-- Select --</option>' +
+            depts.map(d => '<option value="' + d.id + '" ' + (d.id===curDept?'selected':'') + '>' + d.name + '</option>').join('');
+          AdminView._euFillBatches(sessionId);
+        }).catch(() => {});
+      }, 50);
+    }
+  },
+
+  _euFillBatches(preselect) {
+    const dept = document.getElementById('eu-dept')?.value;
+    const bSel = document.getElementById('eu-batch');
+    if (!bSel) return;
+    const sessions = (AdminView._euSessions || []).filter(s => s.departmentId === dept);
+    bSel.innerHTML = dept
+      ? ('<option value="">-- Unassigned --</option>' + sessions.map(s => '<option value="' + s.id + '" ' + (s.id===preselect?'selected':'') + '>' + s.name + '</option>').join(''))
+      : '<option value="">-- Select department first --</option>';
   },
 
   async _saveEditUser(id, role) {
@@ -802,6 +848,7 @@ const AdminView={
     if (role === 'STUDENT') {
       d.institutionalId = document.getElementById('eu-id')?.value.trim() || null;
       d.section = document.getElementById('eu-sec')?.value || null;
+      d.sessionId = document.getElementById('eu-batch')?.value || null;
     }
     if (pw) d.password = pw;
     if (!d.firstName || !d.lastName || !d.email) return toast('Name and email required', 'err');
@@ -816,7 +863,15 @@ const AdminView={
   },
 
   async _togUser(id,cb){const v=cb.checked;try{await Api.updateUser(id,{isActive:v});toast('User '+(v?'activated':'deactivated'))}catch(e){cb.checked=!v;toast(e.message,'err')}},
-  _bulkUpload(){showModal('Bulk Upload Users',`<div class="alert alert-info mb3"><span class="alert-icon">i</span>Upload CSV or Excel. Required columns:<br><strong>firstName, lastName, email, role, institutionalId, section</strong><br>Role: STUDENT / FACULTY / ADMIN &nbsp;|&nbsp; Section: A or B (students only)<br>Student password defaults to institutionalId.</div><div class="fg mb3"><label>Download Template</label><button class="btn btn-secondary btn-sm" onclick="AdminView._dlTemplate()">${ico('dl',13)} CSV Template</button></div><div class="fg"><label>Upload File (CSV or Excel)</label><input type="file" id="bulk-file" accept=".csv,.xlsx,.xls" style="padding:8px"></div><div id="bulk-preview" class="mt3"></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-secondary" onclick="AdminView._parseFile()">${ico('edit')} Parse File</button><button class="btn btn-primary" onclick="AdminView._confirmBulk()">${ico('save')} Confirm Upload</button>`);},
+  _bulkUpload(){showModal('Bulk Upload Users',`<div class="alert alert-info mb3"><span class="alert-icon">i</span>Upload CSV or Excel. Required columns:<br><strong>firstName, lastName, email, role, institutionalId, section</strong><br>Role: STUDENT / FACULTY / ADMIN &nbsp;|&nbsp; Section: A or B (students only)<br>Student password defaults to institutionalId. The whole file joins the batch you pick below.</div>
+    <div class="form-row fr2 mb3">
+      <div class="fg"><label>Department (for students)</label><select id="bulk-dept" onchange="AdminView._bulkFillBatches()"><option value="">Loading...</option></select></div>
+      <div class="fg"><label>Batch (for students)</label><select id="bulk-batch"><option value="">-- Select department first --</option></select></div>
+    </div>
+    <div class="fg mb3"><label>Download Template</label><button class="btn btn-secondary btn-sm" onclick="AdminView._dlTemplate()">${ico('dl',13)} CSV Template</button></div><div class="fg"><label>Upload File (CSV or Excel)</label><input type="file" id="bulk-file" accept=".csv,.xlsx,.xls" style="padding:8px"></div><div id="bulk-preview" class="mt3"></div>`,`<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-secondary" onclick="AdminView._parseFile()">${ico('edit')} Parse File</button><button class="btn btn-primary" onclick="AdminView._confirmBulk()">${ico('save')} Confirm Upload</button>`);
+    setTimeout(()=>{Promise.all([Api.getDepartments(),Api.getSessions()]).then(([depts,sessions])=>{AdminView._bulkSessions=sessions;const d=document.getElementById('bulk-dept');if(d)d.innerHTML='<option value="">-- None --</option>'+depts.map(x=>'<option value="'+x.id+'">'+x.name+'</option>').join('');}).catch(()=>{});},50);
+  },
+  _bulkFillBatches(){const dept=document.getElementById('bulk-dept')?.value;const b=document.getElementById('bulk-batch');if(!b)return;const ss=(AdminView._bulkSessions||[]).filter(s=>s.departmentId===dept);b.innerHTML=dept?('<option value="">-- Unassigned --</option>'+ss.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('')):'<option value="">-- Select department first --</option>';},
   _dlTemplate(){const csv='firstName,lastName,email,role,institutionalId,section\nJohn,Doe,john@bup.edu.bd,STUDENT,23549009999,A\nJane,Smith,jane@bup.edu.bd,STUDENT,23549009998,B\nProf,Khan,prof@bup.edu.bd,FACULTY,,';const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='users_template.csv';a.click();},
   async _parseFile(){
     const file=document.getElementById('bulk-file')?.files[0];if(!file)return toast('Select a file','err');
@@ -826,12 +881,14 @@ const AdminView={
       if(file.name.endsWith('.csv')){const text=await file.text();const ls=text.trim().split('\n');const headers=ls[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());users=ls.slice(1).filter(l=>l.trim()).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return mapRow({firstName:obj.firstname||obj['first name'],lastName:obj.lastname||obj['last name'],email:obj.email,role:obj.role,institutionalId:obj.institutionalid||obj['institutional id']});});}
       else{const ab=await file.arrayBuffer();const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs');const wb=XLSX.read(ab);users=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}).map(mapRow);}
       if(!users.length){preview.innerHTML='<div class="alert alert-warn">No data found.</div>';return;}
-      preview.innerHTML='<div class="sec-title mb2">Preview - '+users.length+' users</div><div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:7px 10px">Name</th><th style="padding:7px 10px">Email / ID</th><th style="padding:7px 10px">Role</th><th style="padding:7px 10px">Batch</th><th style="padding:7px 10px">Section</th></tr></thead><tbody>'+users.slice(0,50).map((u,i)=>'<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border)">'+u.firstName+' '+u.lastName+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace;font-size:11px">'+(u.role==='STUDENT'?(u.institutionalId||u.email):u.email)+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)"><span class="role-pill rp-'+(u.role||'STUDENT')+'">'+(u.role||'STUDENT')+'</span></td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.role==='STUDENT'&&u.institutionalId?'Batch 20'+u.institutionalId.substring(0,2):'--')+'</td></tr>').join('')+(users.length>50?'<tr><td colspan="4" style="padding:8px;text-align:center;color:var(--text3)">...and '+(users.length-50)+' more</td></tr>':'')+'</tbody></table></div>';
+      const _bn=(AdminView._bulkSessions||[]).find(s=>s.id===document.getElementById('bulk-batch')?.value);const _bl=_bn?_bn.name:'(set on upload)';
+      preview.innerHTML='<div class="sec-title mb2">Preview - '+users.length+' users</div><div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:7px 10px">Name</th><th style="padding:7px 10px">Email / ID</th><th style="padding:7px 10px">Role</th><th style="padding:7px 10px">Batch</th><th style="padding:7px 10px">Section</th></tr></thead><tbody>'+users.slice(0,50).map((u,i)=>'<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border)">'+u.firstName+' '+u.lastName+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace;font-size:11px">'+(u.role==='STUDENT'?(u.institutionalId||u.email):u.email)+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)"><span class="role-pill rp-'+(u.role||'STUDENT')+'">'+(u.role||'STUDENT')+'</span></td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.role==='STUDENT'?_bl:'--')+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.section||'--')+'</td></tr>').join('')+(users.length>50?'<tr><td colspan="5" style="padding:8px;text-align:center;color:var(--text3)">...and '+(users.length-50)+' more</td></tr>':'')+'</tbody></table></div>';
       window._bulkUsers=users;toast(users.length+' users parsed. Click Confirm Upload.','ok');
     }catch(e){preview.innerHTML='<div class="alert alert-error"><span class="alert-icon">!</span>'+e.message+'</div>';}
   },
   async _confirmBulk(){const users=window._bulkUsers;if(!users||!users.length)return toast('Parse a file first','err');
-    try{const res=await Api.bulkCreateUsers(users);toast('Created: '+res.created+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
+    const sessionId=document.getElementById('bulk-batch')?.value||null;
+    try{const res=await Api.bulkCreateUsers(users,sessionId);toast('Created: '+res.created+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
   _addUser(forceRole) {
     const roleLabel = forceRole === 'ADMIN' ? 'Admin' : forceRole === 'FACULTY' ? 'Faculty' : 'Student';
     const isStudent = forceRole === 'STUDENT' || !forceRole;
@@ -855,11 +912,11 @@ const AdminView={
         <input id="mu-id" placeholder="e.g. 23549009001">
       </div>
       <div class="form-row fr3 mb3">
-        <div class="fg"><label>Batch Year</label>
-          <select id="mu-batch">
-            <option value="">-- Select --</option>
-            <option value="">-- Select --</option>
-          </select>
+        <div class="fg"><label>Department</label>
+          <select id="mu-dept" onchange="AdminView._muFillBatches()"><option value="">Loading...</option></select>
+        </div>
+        <div class="fg"><label>Batch</label>
+          <select id="mu-batch"><option value="">-- Select department first --</option></select>
         </div>
         <div class="fg"><label>Section</label>
           <select id="mu-section">
@@ -868,25 +925,31 @@ const AdminView={
             <option value="B">Section B</option>
           </select>
         </div>
-        <div class="fg"><label>Department</label>
-          <select id="mu-dept"><option value="">Loading...</option></select>
-        </div>
-      </div>` : `<input type="hidden" id="mu-id" value=""><input type="hidden" id="mu-section" value=""><input type="hidden" id="mu-dept" value="">`}`,
+      </div>` : `<input type="hidden" id="mu-id" value=""><input type="hidden" id="mu-section" value=""><input type="hidden" id="mu-batch" value="">`}`,
       `<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
        <button class="btn btn-primary" onclick="AdminView._saveUser()">${ico('save')} Create ${roleLabel}</button>`
     );
     if (isStudent) {
       setTimeout(() => {
         Promise.all([Api.getDepartments(), Api.getSessions()]).then(([depts, sessions]) => {
+          AdminView._muSessions = sessions;
           const dSel = document.getElementById('mu-dept');
           if (dSel) dSel.innerHTML = '<option value="">-- Select --</option>' +
             depts.map(d => '<option value="' + d.id + '">' + d.name + '</option>').join('');
-          const bSel = document.getElementById('mu-batch');
-          if (bSel) bSel.innerHTML = '<option value="">-- Select --</option>' +
-            sessions.map(s => '<option value="' + s.name.replace(/\D+/g,'') + '">' + s.name + '</option>').join('');
         }).catch(() => {});
       }, 50);
     }
+  },
+
+  // Fill the batch dropdown with sessions belonging to the chosen department.
+  _muFillBatches() {
+    const dept = document.getElementById('mu-dept')?.value;
+    const bSel = document.getElementById('mu-batch');
+    if (!bSel) return;
+    const sessions = (AdminView._muSessions || []).filter(s => s.departmentId === dept);
+    bSel.innerHTML = dept
+      ? ('<option value="">-- Unassigned --</option>' + sessions.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join(''))
+      : '<option value="">-- Select department first --</option>';
   },
 
   _onRoleChange() {},
@@ -896,6 +959,7 @@ const AdminView={
     const role    = document.getElementById('mu-role').value;
     const instId  = document.getElementById('mu-id')?.value.trim();
     const section = role === 'STUDENT' ? (document.getElementById('mu-section')?.value || null) : null;
+    const sessionId = role === 'STUDENT' ? (document.getElementById('mu-batch')?.value || null) : null;
     const password = document.getElementById('mu-pw')?.value.trim();
     const d = {
       firstName:       document.getElementById('mu-fn').value.trim(),
@@ -904,6 +968,7 @@ const AdminView={
       role,
       institutionalId: instId || null,
       section,
+      sessionId,
       password:        password || undefined,
     };
     if (!d.firstName || !d.lastName || !d.email) return toast('Name and email required', 'err');
@@ -1043,7 +1108,7 @@ const AdminView={
     try{
       const d = await Api.getStudentAttainmentAdmin(studentId);
       const stu = d.student || {};
-      const batch = stu.institutionalId ? 'Batch 20'+stu.institutionalId.substring(0,2) : '--';
+      const batch = stu.session?.name || (stu.institutionalId ? 'Batch 20'+stu.institutionalId.substring(0,2) : '--');
       const sec   = stu.section ? 'Section '+stu.section : '--';
 
       const coByGroup = {};
@@ -1126,7 +1191,7 @@ const AdminView={
   _exportStuPDF(studentId, name){
     const d = AdminView._lastStuReport; if(!d) return;
     const stu=d.student;
-    const batch=stu.institutionalId?'Batch 20'+stu.institutionalId.substring(0,2):'--';
+    const batch=stu.session?.name || (stu.institutionalId?'Batch 20'+stu.institutionalId.substring(0,2):'--');
     const win=window.open('','_blank');
     const poRows=d.poAttainments.map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.programOutcome.code}</b></td><td>${r.programOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
     const coRows=d.coAttainments.map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.courseOutcome.code}</b></td><td>${r.courseOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');

@@ -822,7 +822,7 @@ const FacultyView = {
         '<th style="' + ths + ';text-align:right">Report</th>' +
       '</tr></thead><tbody>' +
       students.map((s, i) => {
-        const batch = s.institutionalId ? 'Batch 20' + s.institutionalId.substring(0,2) : '--';
+        const batch = s.session?.name || (s.institutionalId ? 'Batch 20' + s.institutionalId.substring(0,2) : '--');
         const sec   = s.section ? 'Section ' + s.section : '--';
         return '<tr style="background:' + (i%2?'var(--surface2)':'var(--surface)') + '">' +
           '<td style="padding:9px 12px;color:var(--text3);border-bottom:1px solid var(--border)">' + (i+1) + '</td>' +
@@ -953,7 +953,7 @@ const FacultyView = {
     const d = FacultyView._lastStuReport; if(!d) return toast('Open a student report first','err');
     const stu=d.student||{};
     const name=(stu.firstName||'')+' '+(stu.lastName||'');
-    const batch=stu.institutionalId?'Batch 20'+stu.institutionalId.substring(0,2):'--';
+    const batch=stu.session?.name || (stu.institutionalId?'Batch 20'+stu.institutionalId.substring(0,2):'--');
     const win=window.open('','_blank');
     const poRows=(d.poAttainments||[]).map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.programOutcome.code}</b></td><td>${r.programOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
     const coRows=(d.coAttainments||[]).map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.courseOutcome.code}</b></td><td>${r.courseOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');

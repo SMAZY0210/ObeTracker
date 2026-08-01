@@ -16,6 +16,9 @@ const bulkImportStudents = async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ status: 'error', error: 'No file uploaded' });
 
+    // The whole file is assigned to one batch, chosen in the dialog.
+    const sessionId = req.body.sessionId || null;
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(req.file.path);
     const sheet = workbook.worksheets[0];
@@ -27,7 +30,7 @@ const bulkImportStudents = async (req, res, next) => {
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return; // skip header
       rowIndex++;
-      const [, firstName, lastName, email, institutionalId, programCode] = row.values;
+      const [, firstName, lastName, email, institutionalId, section] = row.values;
 
       if (!firstName || !lastName || !email) {
         errors.push({ row: rowNumber, error: 'firstName, lastName, email are required' });
@@ -37,7 +40,7 @@ const bulkImportStudents = async (req, res, next) => {
         errors.push({ row: rowNumber, error: `Invalid email: ${email}` });
         return;
       }
-      valid.push({ firstName: String(firstName), lastName: String(lastName), email: String(email).toLowerCase(), institutionalId: institutionalId ? String(institutionalId) : null, programCode: programCode ? String(programCode) : null });
+      valid.push({ firstName: String(firstName), lastName: String(lastName), email: String(email).toLowerCase(), institutionalId: institutionalId ? String(institutionalId) : null, section: section ? String(section).toUpperCase() : null });
     });
 
     if (errors.length) {
@@ -55,10 +58,11 @@ const bulkImportStudents = async (req, res, next) => {
           where: { email: row.email },
           create: {
             email: row.email, firstName: row.firstName, lastName: row.lastName,
-            institutionalId: row.institutionalId, passwordHash,
+            institutionalId: row.institutionalId, section: row.section, sessionId,
+            passwordHash,
             role: 'STUDENT', institutionId: req.user.institutionId,
           },
-          update: { firstName: row.firstName, lastName: row.lastName, institutionalId: row.institutionalId },
+          update: { firstName: row.firstName, lastName: row.lastName, institutionalId: row.institutionalId, section: row.section, sessionId },
         });
         results.push({ userId: user.id, email: user.email });
       }
@@ -125,7 +129,7 @@ const getStudentTemplate = async (req, res, next) => {
   try {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Students');
-    sheet.addRow(['#', 'firstName', 'lastName', 'email', 'institutionalId', 'programCode']);
+    sheet.addRow(['#', 'firstName', 'lastName', 'email', 'institutionalId', 'section']);
     sheet.addRow([1, 'Jane', 'Doe', 'jane.doe@example.com', 'STU001', 'BSCS']);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="student_import_template.xlsx"');

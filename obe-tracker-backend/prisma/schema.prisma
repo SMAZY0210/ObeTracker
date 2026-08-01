@@ -85,6 +85,7 @@ model User {
   lastName        String
   institutionalId String?
   section         String?   // e.g. 'A', 'B'
+  sessionId       String?   // student's batch (department-scoped session); null = unassigned
   isActive        Boolean   @default(true)
   lastLoginAt     DateTime?
   createdAt       DateTime  @default(now())
@@ -92,6 +93,7 @@ model User {
   deletedAt       DateTime?
 
   institution        Institution        @relation(fields: [institutionId], references: [id])
+  session            Session?           @relation(fields: [sessionId], references: [id])
   otpTokens          OtpToken[]
   jwtBlacklist       JwtBlacklist[]
   auditLogs          AuditLog[]
@@ -155,6 +157,7 @@ model Department {
   institution Institution @relation(fields: [institutionId], references: [id])
   faculty     Faculty?    @relation(fields: [facultyId], references: [id])
   programs    Program[]
+  sessions    Session[]
 
   @@unique([institutionId, code])
 }
@@ -180,6 +183,7 @@ model Program {
 model Session {
   id               String        @id @default(cuid())
   institutionId    String
+  departmentId     String?
   name             String
   startDate        DateTime
   endDate          DateTime?
@@ -189,9 +193,12 @@ model Session {
   updatedAt        DateTime      @updatedAt
 
   institution Institution @relation(fields: [institutionId], references: [id])
+  department  Department? @relation(fields: [departmentId], references: [id])
+  students    User[]
   courses     Course[]
 
   @@index([institutionId])
+  @@index([departmentId])
 }
 
 model Course {

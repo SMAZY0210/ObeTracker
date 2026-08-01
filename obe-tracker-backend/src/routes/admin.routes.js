@@ -35,6 +35,7 @@ router.delete('/outcomes/:id', c.deleteProgramOutcome);
 router.get('/sessions', c.getSessions);
 router.post('/sessions', c.createSession);
 router.put('/sessions/:id', c.updateSession);
+router.delete('/sessions/:id', c.deleteSession);
 
 // Courses
 router.get('/courses', c.getCourses);
