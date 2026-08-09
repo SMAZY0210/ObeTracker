@@ -30,7 +30,9 @@ const bulkImportStudents = async (req, res, next) => {
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return; // skip header
       rowIndex++;
-      const [, firstName, lastName, email, institutionalId, section] = row.values;
+      // row.values is 1-indexed with values[0] === null, and values[1] is the
+      // template's leading "#" column — so real data starts at values[2].
+      const [, , firstName, lastName, email, institutionalId, section] = row.values;
 
       if (!firstName || !lastName || !email) {
         errors.push({ row: rowNumber, error: 'firstName, lastName, email are required' });
@@ -91,7 +93,7 @@ const bulkImportMarks = async (req, res, next) => {
 
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const [, studentId, marksObtained] = row.values;
+      const [, , studentId, marksObtained] = row.values;
       if (!studentId || marksObtained === undefined) {
         errors.push({ row: rowNumber, error: 'studentId and marksObtained are required' });
         return;
