@@ -19,6 +19,32 @@ async function main() {
   });
   console.log('✓ Institution & thresholds');
 
+  // ── Academic Faculties ────────────────────────────────────────
+  // NOTE: the `Faculty` model is an academic faculty (a school inside the
+  // university). It has nothing to do with Role.FACULTY, which is a teacher
+  // account on the `User` model. Same word, two different tables.
+  // Department.facultyId points here.
+  const fstFaculty = await prisma.faculty.upsert({
+    where: { institutionId_code: { institutionId: institution.id, code: 'FST' } },
+    update: { name: 'Faculty of Science and Technology' },
+    create: {
+      institutionId: institution.id,
+      name: 'Faculty of Science and Technology',
+      code: 'FST',
+    },
+  });
+
+  const fbsFaculty = await prisma.faculty.upsert({
+    where: { institutionId_code: { institutionId: institution.id, code: 'FBS' } },
+    update: { name: 'Faculty of Business Studies' },
+    create: {
+      institutionId: institution.id,
+      name: 'Faculty of Business Studies',
+      code: 'FBS',
+    },
+  });
+  console.log('✓ Faculties FST · FBS');
+
   // ── Admin (login: admin / 1234) ───────────────────────────────
   const adminHash = await bcrypt.hash('1234', 10);
   await prisma.user.upsert({
@@ -59,11 +85,31 @@ async function main() {
   // ── Department & Program ──────────────────────────────────────
   const deptICT = await prisma.department.upsert({
     where: { institutionId_code: { institutionId: institution.id, code: 'ICT' } },
-    update: { name: 'Department of Information and Communication Technology', code: 'ICT' },
-    create: {
-      institutionId: institution.id,
+    // facultyId is in `update` too, so re-running repairs departments that were
+    // created before the faculty tier existed.
+    update: {
       name: 'Department of Information and Communication Technology',
       code: 'ICT',
+      facultyId: fstFaculty.id,
+    },
+    create: {
+      institutionId: institution.id,
+      facultyId: fstFaculty.id,
+      name: 'Department of Information and Communication Technology',
+      code: 'ICT',
+    },
+  });
+
+  // Second department, used only to prove batch scoping works. Its batch must
+  // NOT appear in the ICT dropdowns. Delete this block if you want a lean seed.
+  const deptBBA = await prisma.department.upsert({
+    where: { institutionId_code: { institutionId: institution.id, code: 'BBA' } },
+    update: { name: 'Department of Business Administration', facultyId: fbsFaculty.id },
+    create: {
+      institutionId: institution.id,
+      facultyId: fbsFaculty.id,
+      name: 'Department of Business Administration',
+      code: 'BBA',
     },
   });
 
@@ -76,7 +122,8 @@ async function main() {
       code: 'BICT',
     },
   });
-  console.log('✓ Department ICT · Program BICT');
+  console.log('✓ FST → Department ICT → Program BICT');
+  console.log('✓ FBS → Department BBA (no program, scope test only)');
 
   // ── Program Outcomes PO1-PO12 ─────────────────────────────────
   const poData = [
@@ -118,22 +165,48 @@ async function main() {
   console.log('✓ PO1-PO12');
 
   // ── Sessions ──────────────────────────────────────────────────
+  // A session IS a batch, and a batch now belongs to one department. The admin
+  // UI filters with a strict s.departmentId === dept, so a batch left at null
+  // is invisible in every student-assignment dropdown even though the row is
+  // there. Every session below gets a departmentId.
+  //
+  // The five ICT ids are unchanged on purpose. Re-running this seed repairs the
+  // existing rows in place instead of forking a second copy and orphaning the
+  // courses and marks already hanging off them. On a fresh database you can
+  // rename them to session-ict-batch-2023 and so on.
   const batchData = [
-    { id: 'session-batch-2022', name: 'Batch 2022', start: '2022-01-01', end: '2026-06-30' },
-    { id: 'session-batch-2023', name: 'Batch 2023', start: '2023-01-01', end: '2027-06-30' },
-    { id: 'session-batch-2024', name: 'Batch 2024', start: '2024-01-01', end: '2028-06-30' },
-    { id: 'session-batch-2025', name: 'Batch 2025', start: '2025-01-01', end: '2029-06-30' },
-    { id: 'session-batch-2026', name: 'Batch 2026', start: '2026-01-01', end: '2030-06-30' },
+    { id: 'session-batch-2022',     deptId: deptICT.id, name: 'Batch 2022', start: '2022-01-01', end: '2026-06-30' },
+    { id: 'session-batch-2023',     deptId: deptICT.id, name: 'Batch 2023', start: '2023-01-01', end: '2027-06-30' },
+    { id: 'session-batch-2024',     deptId: deptICT.id, name: 'Batch 2024', start: '2024-01-01', end: '2028-06-30' },
+    { id: 'session-batch-2025',     deptId: deptICT.id, name: 'Batch 2025', start: '2025-01-01', end: '2029-06-30' },
+    { id: 'session-batch-2026',     deptId: deptICT.id, name: 'Batch 2026', start: '2026-01-01', end: '2030-06-30' },
+    // Scope test: belongs to BBA, so it must never show under ICT.
+    { id: 'session-bba-batch-2023', deptId: deptBBA.id, name: 'BBA Batch 2023', start: '2023-01-01', end: '2027-06-30' },
   ];
+
   const sessions = {};
   for (const b of batchData) {
     sessions[b.name] = await prisma.session.upsert({
       where: { id: b.id },
-      update: {},
-      create: { id: b.id, institutionId: institution.id, name: b.name, startDate: new Date(b.start), endDate: new Date(b.end), status: 'ACTIVE' },
+      update: {
+        departmentId: b.deptId,
+        name: b.name,
+        startDate: new Date(b.start),
+        endDate: new Date(b.end),
+        status: 'ACTIVE',
+      },
+      create: {
+        id: b.id,
+        institutionId: institution.id,
+        departmentId: b.deptId,
+        name: b.name,
+        startDate: new Date(b.start),
+        endDate: new Date(b.end),
+        status: 'ACTIVE',
+      },
     });
   }
-  console.log('✓ Sessions Batch 2022-2026');
+  console.log('✓ Batches: ICT 2022-2026, BBA 2023 (all department-scoped)');
 
   // ── Courses ───────────────────────────────────────────────────
   const sre = await prisma.course.upsert({
@@ -459,7 +532,10 @@ async function main() {
     ['23549009102','MD. RAFAT HOSSAN','LEON'],
   ];
 
-  const stuHash = await bcrypt.hash('1234', 10);
+  // Every id above starts 235..., so this whole list is the ICT Batch 2023
+  // cohort. sessionId is what puts them in that batch; without it the student
+  // list renders but the batch and section filters return nothing.
+  const ictBatch2023 = sessions['Batch 2023'];
   const students = [];
 
   for (const [id, firstName, lastName] of studentList) {
@@ -471,7 +547,12 @@ async function main() {
 
     const stu = await prisma.user.upsert({
       where: { email: `${id}@bup.edu.bd` },
-      update: { passwordHash: stuPwHash, institutionalId: id, section },
+      update: {
+        passwordHash: stuPwHash,
+        institutionalId: id,
+        section,
+        sessionId: ictBatch2023.id,
+      },
       create: {
         email: `${id}@bup.edu.bd`,
         passwordHash: stuPwHash,
@@ -479,12 +560,14 @@ async function main() {
         firstName, lastName,
         institutionalId: id,
         section,
+        sessionId: ictBatch2023.id,
         institutionId: institution.id,
       },
     });
     students.push(stu);
   }
   console.log(`✓ ${students.length} students created (email: <id>@bup.edu.bd  password: <id>)`);
+  console.log(`  all attached to ${ictBatch2023.name} under ICT, split into sections A and B`);
 
   // ── Enrol Batch 2023 students in ICE-3207 AND ICE-3205 ──────
   for (const stu of students) {
@@ -513,11 +596,16 @@ async function main() {
   console.log('  Student : <studentId>@bup.edu.bd    password: <studentId>');
   console.log('            e.g. 23549009001@bup.edu.bd  password: 23549009001');
   console.log('');
+  console.log('  Structure');
+  console.log('  ─────────────────────────────────────────────────────────────────');
+  console.log('  BUP → FST → ICT → BICT → Batches 2022, 2023, 2024, 2025, 2026');
+  console.log('  BUP → FBS → BBA        → BBA Batch 2023  (scope test, empty)');
+  console.log('');
   console.log('  Courses');
   console.log('  ─────────────────────────────────────────────────────────────────');
-  console.log('  ICE-3207  Software and Requirement Engineering  Batch 2023  ← 64 students enrolled');
-  console.log('  ICE-3205  Web Technologies                      Batch 2024');
-  console.log('  ICE-4107  Artificial Intelligence               Batch 2022');
+  console.log(`  ICE-3207  Software and Requirement Engineering  Batch 2023  ← ${students.length} students enrolled`);
+  console.log(`  ICE-3205  Web Technologies                      Batch 2023  ← ${students.length} students enrolled`);
+  console.log('  ICE-4107  Artificial Intelligence               Batch 2022  ← nobody enrolled');
   console.log('');
   console.log('  Course Outcomes (3 per course, with Bloom\'s + profiles + CO-PO maps)');
   console.log('  ─────────────────────────────────────────────────────────────────');
@@ -797,7 +885,31 @@ async function main() {
   console.log('');
   console.log('  Attainment threshold: floor(total marks * 60%)  [integer]');
 
-  console.log('  Recomputing attainment...');
+  // ── Integrity check ─────────────────────────────────────────────
+  // Both of these fail silently in the UI. An unscoped batch never shows in a
+  // department dropdown, and a batchless student never shows in a batch filter.
+  // Neither throws, so check for them here rather than during a demo.
+  const orphanSessions = await prisma.session.findMany({
+    where: { institutionId: institution.id, departmentId: null },
+    select: { id: true, name: true },
+  });
+  const orphanStudents = await prisma.user.count({
+    where: { institutionId: institution.id, role: 'STUDENT', sessionId: null, deletedAt: null },
+  });
+
+  console.log('');
+  if (orphanSessions.length) {
+    console.log(`  ⚠ ${orphanSessions.length} batch(es) with no department, invisible in the admin UI:`);
+    orphanSessions.forEach(s => console.log(`      ${s.name}  (${s.id})`));
+  } else {
+    console.log('  ✓ every batch is scoped to a department');
+  }
+  if (orphanStudents) {
+    console.log(`  ⚠ ${orphanStudents} student(s) not attached to any batch`);
+  } else {
+    console.log('  ✓ every student is attached to a batch');
+  }
+
   console.log('✅ All done - marks and attainment seeded!');
 }
 
