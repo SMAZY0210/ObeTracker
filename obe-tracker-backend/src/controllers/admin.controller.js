@@ -426,11 +426,17 @@ const getAttainmentReport = async (req, res, next) => {
     const { sessionId, departmentId, studentId } = req.query;
     const institutionId = req.user.institutionId;
 
+    // `program` used to appear twice in this object literal when a department
+    // filter was set: once for the institution scope, once for the department
+    // scope. The second key silently wins in JS, so picking a department
+    // dropped the institutionId check entirely instead of narrowing it.
     const courseWhere = {
       deletedAt: null,
-      program: { department: { institutionId } },
+      program: {
+        department: { institutionId },
+        ...(departmentId && { departmentId }),
+      },
       ...(sessionId && { sessionId }),
-      ...(departmentId && { program: { departmentId } }),
     };
 
     const courses = await prisma.course.findMany({
