@@ -666,6 +666,11 @@ const AdminView={
   },
 
   async _enrolBatch(){
+    // Without a batch the server matched every student in the institution, so
+    // "Batch 2026, all sections" quietly enrolled section A of every other
+    // batch. The server refuses this now; do not send it either.
+    if(!document.getElementById('en-batch')?.value)
+      return toast('Pick a batch first. Without one this would enrol every student in the institution.','err');
     const courseId = document.getElementById('en-course')?.value;
     const sessionId = document.getElementById('en-batch')?.value;
     const section = document.getElementById('en-section')?.value;
@@ -753,6 +758,10 @@ const AdminView={
     const el=document.getElementById('po-area');el.innerHTML=loading();
     try{
       const l=await Api.getProgramOutcomes(pid);
+      // PO1..PO12 numerically. A text sort puts PO10 between PO1 and PO2, so the
+      // grid read PO1, PO10, PO11, PO12, PO2.
+      const num=c=>{const n=parseInt(String(c).replace(/\D+/g,''),10);return isNaN(n)?9999:n;};
+      l.sort((a,b)=>num(a.code)-num(b.code)||a.code.localeCompare(b.code));
       el.innerHTML=l.length?`<div class="po-grid">${l.map(po=>`<div class="po-card">
         <div class="po-card-top"><span class="po-code">${po.code}</span>
           <div style="display:flex;gap:6px">
@@ -878,7 +887,7 @@ const AdminView={
     const preview=document.getElementById('bulk-preview');preview.innerHTML='<div class="loading-box" style="padding:10px 0"><div class="spin"></div> Reading...</div>';
     try{
       let users=[];const mapRow=r=>({firstName:String(r.firstName||r['First Name']||r.firstname||'').trim(),lastName:String(r.lastName||r['Last Name']||r.lastname||'').trim(),email:String(r.email||r.Email||'').trim(),role:String(r.role||r.Role||'STUDENT').toUpperCase().trim(),institutionalId:String(r.institutionalId||r['Institutional ID']||r.institutionalid||'').trim(),section:(String(r.section||r.Section||'').trim().toUpperCase()||null)});
-      if(file.name.endsWith('.csv')){const text=await file.text();const ls=text.trim().split('\n');const headers=ls[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());users=ls.slice(1).filter(l=>l.trim()).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return mapRow({firstName:obj.firstname||obj['first name'],lastName:obj.lastname||obj['last name'],email:obj.email,role:obj.role,institutionalId:obj.institutionalid||obj['institutional id']});});}
+      if(file.name.endsWith('.csv')){const text=await file.text();const ls=text.trim().split('\n');const headers=ls[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());users=ls.slice(1).filter(l=>l.trim()).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return mapRow({firstName:obj.firstname||obj['first name'],lastName:obj.lastname||obj['last name'],email:obj.email,role:obj.role,institutionalId:obj.institutionalid||obj['institutional id'],section:obj.section});});}
       else{const ab=await file.arrayBuffer();const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs');const wb=XLSX.read(ab);users=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}).map(mapRow);}
       if(!users.length){preview.innerHTML='<div class="alert alert-warn">No data found.</div>';return;}
       const _bn=(AdminView._bulkSessions||[]).find(s=>s.id===document.getElementById('bulk-batch')?.value);const _bl=_bn?_bn.name:'(set on upload)';
@@ -888,7 +897,7 @@ const AdminView={
   },
   async _confirmBulk(){const users=window._bulkUsers;if(!users||!users.length)return toast('Parse a file first','err');
     const sessionId=document.getElementById('bulk-batch')?.value||null;
-    try{const res=await Api.bulkCreateUsers(users,sessionId);toast('Created: '+res.created+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
+    try{const res=await Api.bulkCreateUsers(users,sessionId);toast('Created: '+res.created+', Updated: '+(res.updated||0)+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
   _addUser(forceRole) {
     const roleLabel = forceRole === 'ADMIN' ? 'Admin' : forceRole === 'FACULTY' ? 'Faculty' : 'Student';
     const isStudent = forceRole === 'STUDENT' || !forceRole;
@@ -997,15 +1006,46 @@ const AdminView={
               <select id="ar-sess"><option value="">Select Batch</option>${sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
             <div class="fg" style="flex:1;margin:0"><label>Department</label>
               <select id="ar-dept"><option value="">Select Department</option>${depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('')}</select></div>
-            <div class="fg" style="flex:1;margin:0"><label>Student ID (optional)</label>
-              <input id="ar-stu" placeholder="e.g. 23549009001" style="font-family:monospace"></div>
+
             <div style="padding-top:22px">
               <button class="btn btn-primary" onclick="AdminView._loadAttainReport()">${ico('chart')} View Report</button>
             </div>
           </div>
         </div></div>
-        <div id="ar-result"></div>`;
+        <div id="ar-result"></div>
+
+        <!-- Individual lookup, its own section. It was a field inside the group
+             filter bar, which read as if it narrowed the cohort figures when in
+             fact it replaced them with one student's report. -->
+        <div class="card mt4"><div class="card-bd">
+          <div class="sec-title mb1">Individual Student Report</div>
+          <p class="text-sm text-muted mb3">Independent of the filters above. Search the whole institution by roll number or email.</p>
+          <div class="filter-bar" style="margin-bottom:0">
+            <div class="fg" style="flex:1;margin:0"><label>Roll number or email</label>
+              <input id="ar-stu" placeholder="e.g. 23549009001" style="font-family:monospace"
+                onkeydown="if(event.key==='Enter')AdminView._loadStudentReport()"></div>
+            <div style="padding-top:22px">
+              <button class="btn btn-secondary" onclick="AdminView._loadStudentReport()">View Student</button>
+            </div>
+          </div>
+          <div id="ar-stu-result" class="mt3"></div>
+        </div></div>`;
     }catch(e){document.getElementById('view-root').innerHTML+=`<div class="alert alert-error"><span class="alert-icon">&#9888;</span>${e.message}</div>`}
+  },
+
+  // Individual lookup, separate from the cohort filters entirely.
+  async _loadStudentReport(){
+    const q=document.getElementById('ar-stu')?.value?.trim();
+    const el=document.getElementById('ar-stu-result');
+    if(!q) return toast('Enter a roll number or email','err');
+    el.innerHTML=loading();
+    try{
+      const users=await Api.getUsers({role:'STUDENT',search:q});
+      const stu=users.find(u=>u.institutionalId===q||u.email===q)||users[0];
+      if(!stu){ el.innerHTML='<div class="alert alert-warn">No student matching "'+q+'".</div>'; return; }
+      el.innerHTML='';
+      AdminView._viewStuAtt(stu.id, stu.firstName+' '+stu.lastName);
+    }catch(e){ el.innerHTML='<div class="alert alert-error">'+e.message+'</div>'; }
   },
 
   async _loadAttainReport(){
@@ -1014,20 +1054,6 @@ const AdminView={
     const el=document.getElementById('ar-result');
     el.innerHTML=loading();
     try{
-      const stuInput=document.getElementById('ar-stu')?.value?.trim();
-      const filters={};
-      if(sessId) filters.sessionId=sessId;
-      if(deptId) filters.departmentId=deptId;
-
-      if(stuInput){
-        const users=await Api.getUsers({role:'STUDENT',search:stuInput});
-        const stu=users.find(u=>u.institutionalId===stuInput||u.email===stuInput);
-        if(!stu){el.innerHTML='<div class="alert alert-warn">Student "'+stuInput+'" not found.</div>';return;}
-        AdminView._viewStuAtt(stu.id, stu.firstName+' '+stu.lastName);
-        el.innerHTML='';
-        return;
-      }
-
       const{coSummary,poSummary}=await Api.getAttainmentReport(filters);
       if(!coSummary.length&&!poSummary.length){
         el.innerHTML=`<div class="empty-box"><div class="empty-ico">${ico('chart',24)}</div><h3>No data for this filter</h3><p>Try a different batch or department.</p></div>`;
