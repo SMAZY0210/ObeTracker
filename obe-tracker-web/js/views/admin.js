@@ -1034,10 +1034,6 @@ const AdminView={
         return;
       }
 
-      // Build a map: poCode -> list of contributing COs
-      const poCoMap={};
-      poSummary.forEach(po=>{ poCoMap[po.poCode]=coSummary.filter(co=>co.poCode===po.poCode||true); });
-
       el.innerHTML=`
         <div class="flex-between mb3">
           <div class="sec-title">Program Outcome Attainment</div>
@@ -1050,7 +1046,7 @@ const AdminView={
           <thead><tr><th>PO</th><th>Title</th>
             <th style="text-align:center">Attained</th><th style="text-align:center">Total</th>
             <th style="min-width:160px">Rate</th><th style="text-align:center">Details</th></tr></thead>
-          <tbody>${poSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';const relCOs=coSummary.filter(co=>co.poCode===r.poCode);return`<tr>
+          <tbody>${poSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';return`<tr>
             <td><span class="badge bg-blue">${r.poCode||'?'}</span></td>
             <td>${r.poTitle||'?'}</td>
             <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attained||0}</td>
