@@ -159,8 +159,10 @@ const updateSession = async (req, res, next) => {
     let frozenThresholds = session.frozenThresholds;
     // Freeze thresholds on close
     if (status === 'CLOSED' && session.status !== 'CLOSED') {
-      const th = await prisma.attainmentThreshold.findUnique({ where: { institutionId: req.user.institutionId } });
-      frozenThresholds = th ? { l3Min: th.l3Min, l2Min: th.l2Min, l1Min: th.l1Min } : null;
+      // AttainmentThreshold held the L0..L3 band cutoffs and was never read by
+      // the engine, which used a hardcoded 60 percent. Freeze that instead, so a
+      // closed session records the rule it was actually scored under.
+      frozenThresholds = { coThreshold: 60 };
     }
 
     const item = await prisma.session.update({
@@ -214,8 +216,62 @@ const getCourses = async (req, res, next) => {
 const createCourse = async (req, res, next) => {
   try {
     const { programId, sessionId, name, code, creditHours } = req.body;
+    const upper = (code || '').toUpperCase().trim();
+
+    if (!upper) return res.status(400).json({ status: 'error', error: 'Course code is required' });
+
+    // The unique constraint is (sessionId, code) with no deletedAt in it, so a
+    // soft-deleted course still occupies its code. Creating one with a code that
+    // had been deleted failed on the raw database constraint, which surfaced to
+    // the user as a Prisma stack trace naming a file path on the server.
+    const existing = await prisma.course.findFirst({ where: { sessionId, code: upper } });
+
+    if (existing && !existing.deletedAt) {
+      return res.status(409).json({
+        status: 'error',
+        error: `A course with code "${upper}" already exists in this batch.`,
+      });
+    }
+
+    if (existing) {
+      // Revive. Deleting a course is a soft delete and carries no dependency
+      // guard, so the row may still hold enrolments, outcomes and marks.
+      // Bringing those back is almost always what was wanted: the usual reason
+      // a code is being re-entered is that the course was removed by mistake.
+      const [enrolments, outcomes, assessments] = await Promise.all([
+        prisma.enrolment.count({ where: { courseId: existing.id } }),
+        prisma.courseOutcome.count({ where: { courseId: existing.id, deletedAt: null } }),
+        prisma.assessment.count({ where: { courseId: existing.id, deletedAt: null } }),
+      ]);
+
+      const revived = await prisma.course.update({
+        where: { id: existing.id },
+        data: {
+          programId, sessionId, name,
+          code: upper,
+          creditHours: creditHours || existing.creditHours || 3,
+          deletedAt: null,
+          isActive: true,
+        },
+      });
+
+      const carried = [];
+      if (enrolments) carried.push(`${enrolments} enrolment(s)`);
+      if (outcomes) carried.push(`${outcomes} course outcome(s)`);
+      if (assessments) carried.push(`${assessments} assessment(s)`);
+
+      return res.status(201).json({
+        status: 'success',
+        data: revived,
+        revived: true,
+        note: carried.length
+          ? `Restored a previously deleted course with this code, along with ${carried.join(', ')}.`
+          : 'Restored a previously deleted course with this code. It had no data attached.',
+      });
+    }
+
     const item = await prisma.course.create({
-      data: { programId, sessionId, name, code: code.toUpperCase(), creditHours: creditHours || 3 },
+      data: { programId, sessionId, name, code: upper, creditHours: creditHours || 3 },
     });
     res.status(201).json({ status: 'success', data: item });
   } catch (err) { next(err); }
@@ -224,6 +280,23 @@ const createCourse = async (req, res, next) => {
 const updateCourse = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Renaming into a code held by a deleted course hits the same constraint.
+    if (req.body.code) {
+      const upper = req.body.code.toUpperCase().trim();
+      const cur = await prisma.course.findUnique({ where: { id }, select: { sessionId: true } });
+      const clash = cur && await prisma.course.findFirst({
+        where: { sessionId: cur.sessionId, code: upper, NOT: { id } },
+      });
+      if (clash) {
+        return res.status(409).json({
+          status: 'error',
+          error: clash.deletedAt
+            ? `Code "${upper}" belongs to a deleted course in this batch. Pick another code, or recreate "${upper}" from Add Course to restore it.`
+            : `A course with code "${upper}" already exists in this batch.`,
+        });
+      }
+    }
     const { name, code, creditHours } = req.body;
     const item = await prisma.course.update({ where: { id }, data: { name, code: code?.toUpperCase(), creditHours } });
     res.json({ status: 'success', data: item });
@@ -349,7 +422,6 @@ const updateUser = async (req, res, next) => {
 // ── Thresholds ───────────────────────────────────────────────
 const getThresholds = async (req, res, next) => {
   try {
-    const th = await prisma.attainmentThreshold.findUnique({ where: { institutionId: req.user.institutionId } });
     res.json({ status: 'success', data: { attainmentThreshold: 60, note: 'Binary model: CO/PO attained if ≥ 60% of weighted marks' } });
   } catch (err) { next(err); }
 };
@@ -498,7 +570,7 @@ const getAttainmentReport = async (req, res, next) => {
         attained: 0, total: 0,
       };
       coMap[key].total++;
-      if (r.level === 'L3') coMap[key].attained++;
+      if (r.attained) coMap[key].attained++;
     });
 
     const poMap = {};
@@ -510,7 +582,7 @@ const getAttainmentReport = async (req, res, next) => {
         attained: 0, total: 0,
       };
       poMap[key].total++;
-      if (r.level === 'L3') poMap[key].attained++;
+      if (r.attained) poMap[key].attained++;
     });
 
     const coSummary = Object.values(coMap).map(v => ({
@@ -541,7 +613,7 @@ const bulkCreateUsers = async (req, res, next) => {
       return res.status(400).json({ status: 'error', error: 'No users provided' });
     }
     const bcrypt = require('bcrypt');
-    const results = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results = { created: 0, skipped: 0, errors: [] };
 
     for (const u of users) {
       try {
@@ -555,26 +627,7 @@ const bulkCreateUsers = async (req, res, next) => {
         const existing = await prisma.user.findFirst({
           where: { email: { equals: u.email.trim(), mode: 'insensitive' } },
         });
-        if (existing) {
-          // Update rather than skip. Re-uploading a corrected sheet did nothing
-          // at all, so a section fixed in the file never reached the system and
-          // had to be set by hand for every student.
-          //
-          // Password and role are never touched: a re-upload should not reset
-          // anyone's password or silently change their role.
-          await prisma.user.update({
-            where: { id: existing.id },
-            data: {
-              firstName: u.firstName.trim(),
-              lastName: u.lastName.trim(),
-              institutionalId: u.institutionalId?.trim() || existing.institutionalId,
-              section: u.section?.trim() || existing.section,
-              ...(u.role.toUpperCase() === 'STUDENT' && sessionId ? { sessionId } : {}),
-            },
-          });
-          results.updated = (results.updated || 0) + 1;
-          continue;
-        }
+        if (existing) { results.skipped++; continue; }
         const isStudent = u.role.toUpperCase() === 'STUDENT';
         await prisma.user.create({
           data: {
@@ -682,37 +735,9 @@ const enrolStudents = async (req, res, next) => {
     } else {
       // Batch enrolment. Match on the session (batch) link. Only active
       // students can be enrolled; a dropped student is inactive and skipped.
-      // The batch scope is mandatory. With sessionId empty this fell through to
-      // { role: STUDENT, isActive: true } plus an optional section, which
-      // matches every student in the institution. Choosing "Batch 2026, all
-      // sections" then enrolled section A of every other batch, because nothing
-      // in the query mentioned 2026 at all.
-      if (!sessionId && !batchYear) {
-        return res.status(400).json({
-          status: 'error',
-          error: 'Pick a batch. Enrolling without one would match every student in the institution.',
-        });
-      }
-
       const where = { role: 'STUDENT', deletedAt: null, isActive: true };
-      if (sessionId) {
-        where.sessionId = sessionId;
-      } else {
-        // Match the batch by name rather than slicing digits off the roll
-        // number, which assumed rolls for batch 2026 begin "26" when they
-        // actually begin "23".
-        const sessions = await prisma.session.findMany({
-          where: {
-            institutionId: req.user.institutionId,
-            name: { contains: String(batchYear), mode: 'insensitive' },
-          },
-          select: { id: true },
-        });
-        if (!sessions.length) {
-          return res.status(400).json({ status: 'error', error: `No batch matching "${batchYear}" found.` });
-        }
-        where.sessionId = { in: sessions.map((x) => x.id) };
-      }
+      if (sessionId) where.sessionId = sessionId;
+      else if (batchYear) where.institutionalId = { startsWith: String(batchYear).slice(-2) };
       if (section) where.section = section;
       students = await prisma.user.findMany({ where, select: { id: true } });
     }

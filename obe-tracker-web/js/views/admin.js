@@ -666,11 +666,6 @@ const AdminView={
   },
 
   async _enrolBatch(){
-    // Without a batch the server matched every student in the institution, so
-    // "Batch 2026, all sections" quietly enrolled section A of every other
-    // batch. The server refuses this now; do not send it either.
-    if(!document.getElementById('en-batch')?.value)
-      return toast('Pick a batch first. Without one this would enrol every student in the institution.','err');
     const courseId = document.getElementById('en-course')?.value;
     const sessionId = document.getElementById('en-batch')?.value;
     const section = document.getElementById('en-section')?.value;
@@ -758,10 +753,6 @@ const AdminView={
     const el=document.getElementById('po-area');el.innerHTML=loading();
     try{
       const l=await Api.getProgramOutcomes(pid);
-      // PO1..PO12 numerically. A text sort puts PO10 between PO1 and PO2, so the
-      // grid read PO1, PO10, PO11, PO12, PO2.
-      const num=c=>{const n=parseInt(String(c).replace(/\D+/g,''),10);return isNaN(n)?9999:n;};
-      l.sort((a,b)=>num(a.code)-num(b.code)||a.code.localeCompare(b.code));
       el.innerHTML=l.length?`<div class="po-grid">${l.map(po=>`<div class="po-card">
         <div class="po-card-top"><span class="po-code">${po.code}</span>
           <div style="display:flex;gap:6px">
@@ -887,17 +878,39 @@ const AdminView={
     const preview=document.getElementById('bulk-preview');preview.innerHTML='<div class="loading-box" style="padding:10px 0"><div class="spin"></div> Reading...</div>';
     try{
       let users=[];const mapRow=r=>({firstName:String(r.firstName||r['First Name']||r.firstname||'').trim(),lastName:String(r.lastName||r['Last Name']||r.lastname||'').trim(),email:String(r.email||r.Email||'').trim(),role:String(r.role||r.Role||'STUDENT').toUpperCase().trim(),institutionalId:String(r.institutionalId||r['Institutional ID']||r.institutionalid||'').trim(),section:(String(r.section||r.Section||'').trim().toUpperCase()||null)});
-      if(file.name.endsWith('.csv')){const text=await file.text();const ls=text.trim().split('\n');const headers=ls[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());users=ls.slice(1).filter(l=>l.trim()).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return mapRow({firstName:obj.firstname||obj['first name'],lastName:obj.lastname||obj['last name'],email:obj.email,role:obj.role,institutionalId:obj.institutionalid||obj['institutional id'],section:obj.section});});}
+      if(file.name.endsWith('.csv')){const text=await file.text();const ls=text.trim().split('\n');const headers=ls[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());users=ls.slice(1).filter(l=>l.trim()).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return mapRow({firstName:obj.firstname||obj['first name'],lastName:obj.lastname||obj['last name'],email:obj.email,role:obj.role,institutionalId:obj.institutionalid||obj['institutional id']});});}
       else{const ab=await file.arrayBuffer();const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs');const wb=XLSX.read(ab);users=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}).map(mapRow);}
       if(!users.length){preview.innerHTML='<div class="alert alert-warn">No data found.</div>';return;}
+
+      // Validate before upload rather than after. The server skips rows missing
+      // a required field and reports a count, which read as "the file failed"
+      // when in fact most of it imported. Naming the rows here means the sheet
+      // can be corrected before anything is written.
+      const bad=[];
+      const seenEmail={}, seenRoll={};
+      users.forEach((u,i)=>{
+        const ln=i+2; // header is line 1
+        const miss=['firstName','lastName','email','role'].filter(f=>!(u[f]||'').trim());
+        if(miss.length) bad.push({ln,who:(u.email||u.institutionalId||'row '+ln),why:'missing '+miss.join(', ')});
+        const e=(u.email||'').trim().toLowerCase();
+        if(e){ if(seenEmail[e]) bad.push({ln,who:e,why:'duplicate email, also line '+seenEmail[e]}); else seenEmail[e]=ln; }
+        const r=(u.institutionalId||'').trim();
+        if(r){ if(seenRoll[r]) bad.push({ln,who:r,why:'duplicate roll number, also line '+seenRoll[r]}); else seenRoll[r]=ln; }
+      });
+
+      const badHtml = bad.length
+        ? '<div class="alert alert-warn mb2"><span class="alert-icon">!</span><b>'+bad.length+' row(s) will be skipped.</b> The other '+(users.length-bad.length)+' will still upload.<div style="margin-top:6px;font-size:12px;line-height:1.6">'+
+          bad.slice(0,10).map(b=>'Line '+b.ln+' ('+b.who+'): '+b.why).join('<br>')+
+          (bad.length>10?'<br>...and '+(bad.length-10)+' more':'')+'</div></div>'
+        : '';
       const _bn=(AdminView._bulkSessions||[]).find(s=>s.id===document.getElementById('bulk-batch')?.value);const _bl=_bn?_bn.name:'(set on upload)';
-      preview.innerHTML='<div class="sec-title mb2">Preview - '+users.length+' users</div><div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:7px 10px">Name</th><th style="padding:7px 10px">Email / ID</th><th style="padding:7px 10px">Role</th><th style="padding:7px 10px">Batch</th><th style="padding:7px 10px">Section</th></tr></thead><tbody>'+users.slice(0,50).map((u,i)=>'<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border)">'+u.firstName+' '+u.lastName+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace;font-size:11px">'+(u.role==='STUDENT'?(u.institutionalId||u.email):u.email)+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)"><span class="role-pill rp-'+(u.role||'STUDENT')+'">'+(u.role||'STUDENT')+'</span></td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.role==='STUDENT'?_bl:'--')+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.section||'--')+'</td></tr>').join('')+(users.length>50?'<tr><td colspan="5" style="padding:8px;text-align:center;color:var(--text3)">...and '+(users.length-50)+' more</td></tr>':'')+'</tbody></table></div>';
+      preview.innerHTML=badHtml+'<div class="sec-title mb2">Preview - '+users.length+' users</div><div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead style="background:var(--surface2)"><tr><th style="padding:7px 10px">Name</th><th style="padding:7px 10px">Email / ID</th><th style="padding:7px 10px">Role</th><th style="padding:7px 10px">Batch</th><th style="padding:7px 10px">Section</th></tr></thead><tbody>'+users.slice(0,50).map((u,i)=>'<tr style="background:'+(i%2?'var(--surface2)':'var(--surface)')+'"><td style="padding:6px 10px;border-top:1px solid var(--border)">'+u.firstName+' '+u.lastName+'</td><td style="padding:6px 10px;border-top:1px solid var(--border);font-family:monospace;font-size:11px">'+(u.role==='STUDENT'?(u.institutionalId||u.email):u.email)+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)"><span class="role-pill rp-'+(u.role||'STUDENT')+'">'+(u.role||'STUDENT')+'</span></td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.role==='STUDENT'?_bl:'--')+'</td><td style="padding:6px 10px;border-top:1px solid var(--border)">'+(u.section||'--')+'</td></tr>').join('')+(users.length>50?'<tr><td colspan="5" style="padding:8px;text-align:center;color:var(--text3)">...and '+(users.length-50)+' more</td></tr>':'')+'</tbody></table></div>';
       window._bulkUsers=users;toast(users.length+' users parsed. Click Confirm Upload.','ok');
     }catch(e){preview.innerHTML='<div class="alert alert-error"><span class="alert-icon">!</span>'+e.message+'</div>';}
   },
   async _confirmBulk(){const users=window._bulkUsers;if(!users||!users.length)return toast('Parse a file first','err');
     const sessionId=document.getElementById('bulk-batch')?.value||null;
-    try{const res=await Api.bulkCreateUsers(users,sessionId);toast('Created: '+res.created+', Updated: '+(res.updated||0)+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
+    try{const res=await Api.bulkCreateUsers(users,sessionId);toast('Created: '+res.created+', Skipped: '+res.skipped+(res.errors.length?', Errors: '+res.errors.length:''),'ok');closeModal();window._bulkUsers=null;this._loadU();}catch(e){toast(e.message,'err');}},
   _addUser(forceRole) {
     const roleLabel = forceRole === 'ADMIN' ? 'Admin' : forceRole === 'FACULTY' ? 'Faculty' : 'Student';
     const isStudent = forceRole === 'STUDENT' || !forceRole;
@@ -1006,46 +1019,15 @@ const AdminView={
               <select id="ar-sess"><option value="">Select Batch</option>${sessions.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
             <div class="fg" style="flex:1;margin:0"><label>Department</label>
               <select id="ar-dept"><option value="">Select Department</option>${depts.map(d=>`<option value="${d.id}">${d.name}</option>`).join('')}</select></div>
-
+            <div class="fg" style="flex:1;margin:0"><label>Student ID (optional)</label>
+              <input id="ar-stu" placeholder="e.g. 23549009001" style="font-family:monospace"></div>
             <div style="padding-top:22px">
               <button class="btn btn-primary" onclick="AdminView._loadAttainReport()">${ico('chart')} View Report</button>
             </div>
           </div>
         </div></div>
-        <div id="ar-result"></div>
-
-        <!-- Individual lookup, its own section. It was a field inside the group
-             filter bar, which read as if it narrowed the cohort figures when in
-             fact it replaced them with one student's report. -->
-        <div class="card mt4"><div class="card-bd">
-          <div class="sec-title mb1">Individual Student Report</div>
-          <p class="text-sm text-muted mb3">Independent of the filters above. Search the whole institution by roll number or email.</p>
-          <div class="filter-bar" style="margin-bottom:0">
-            <div class="fg" style="flex:1;margin:0"><label>Roll number or email</label>
-              <input id="ar-stu" placeholder="e.g. 23549009001" style="font-family:monospace"
-                onkeydown="if(event.key==='Enter')AdminView._loadStudentReport()"></div>
-            <div style="padding-top:22px">
-              <button class="btn btn-secondary" onclick="AdminView._loadStudentReport()">View Student</button>
-            </div>
-          </div>
-          <div id="ar-stu-result" class="mt3"></div>
-        </div></div>`;
+        <div id="ar-result"></div>`;
     }catch(e){document.getElementById('view-root').innerHTML+=`<div class="alert alert-error"><span class="alert-icon">&#9888;</span>${e.message}</div>`}
-  },
-
-  // Individual lookup, separate from the cohort filters entirely.
-  async _loadStudentReport(){
-    const q=document.getElementById('ar-stu')?.value?.trim();
-    const el=document.getElementById('ar-stu-result');
-    if(!q) return toast('Enter a roll number or email','err');
-    el.innerHTML=loading();
-    try{
-      const users=await Api.getUsers({role:'STUDENT',search:q});
-      const stu=users.find(u=>u.institutionalId===q||u.email===q)||users[0];
-      if(!stu){ el.innerHTML='<div class="alert alert-warn">No student matching "'+q+'".</div>'; return; }
-      el.innerHTML='';
-      AdminView._viewStuAtt(stu.id, stu.firstName+' '+stu.lastName);
-    }catch(e){ el.innerHTML='<div class="alert alert-error">'+e.message+'</div>'; }
   },
 
   async _loadAttainReport(){
@@ -1054,6 +1036,20 @@ const AdminView={
     const el=document.getElementById('ar-result');
     el.innerHTML=loading();
     try{
+      const stuInput=document.getElementById('ar-stu')?.value?.trim();
+      const filters={};
+      if(sessId) filters.sessionId=sessId;
+      if(deptId) filters.departmentId=deptId;
+
+      if(stuInput){
+        const users=await Api.getUsers({role:'STUDENT',search:stuInput});
+        const stu=users.find(u=>u.institutionalId===stuInput||u.email===stuInput);
+        if(!stu){el.innerHTML='<div class="alert alert-warn">Student "'+stuInput+'" not found.</div>';return;}
+        AdminView._viewStuAtt(stu.id, stu.firstName+' '+stu.lastName);
+        el.innerHTML='';
+        return;
+      }
+
       const{coSummary,poSummary}=await Api.getAttainmentReport(filters);
       if(!coSummary.length&&!poSummary.length){
         el.innerHTML=`<div class="empty-box"><div class="empty-ico">${ico('chart',24)}</div><h3>No data for this filter</h3><p>Try a different batch or department.</p></div>`;
@@ -1072,7 +1068,7 @@ const AdminView={
           <thead><tr><th>PO</th><th>Title</th>
             <th style="text-align:center">Attained</th><th style="text-align:center">Total</th>
             <th style="min-width:160px">Rate</th><th style="text-align:center">Details</th></tr></thead>
-          <tbody>${poSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';return`<tr>
+          <tbody>${poSummary.map(r=>{const lvl = r.attainmentRate >= 60;return`<tr>
             <td><span class="badge bg-blue">${r.poCode||'?'}</span></td>
             <td>${r.poTitle||'?'}</td>
             <td style="text-align:center;font-weight:700;color:var(--l3)">${r.attained||0}</td>
@@ -1087,7 +1083,7 @@ const AdminView={
                 const relCOs=coSummary.filter(co=>(co.mappedPoIds||[]).includes(r.programOutcomeId));
                 if(!relCOs.length) return '<p class="text-sm text-muted">No mapped COs found.</p>';
                 return '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--border)"><th style="padding:6px 10px;text-align:left">Course</th><th style="padding:6px 10px;text-align:left">CO</th><th style="padding:6px 10px;text-align:left">Title</th><th style="padding:6px 10px;text-align:center">Attained</th><th style="padding:6px 10px;text-align:center">Total</th><th style="padding:6px 10px;min-width:140px">Rate</th></tr></thead><tbody>'+
-                  relCOs.map(co=>{const cl=co.attainmentRate>=60?'L3':'L0';return'<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 10px"><span class="code-badge">'+( co.courseCode||'-')+'</span></td><td style="padding:6px 10px"><span class="badge bg-green">'+(co.coCode||'?')+'</span></td><td style="padding:6px 10px">'+(co.coTitle||'?')+'</td><td style="padding:6px 10px;text-align:center;font-weight:700;color:var(--l3)">'+(co.attained||0)+'</td><td style="padding:6px 10px;text-align:center;color:var(--text3)">'+(co.total||0)+'</td><td style="padding:6px 10px">'+attBar(co.attainmentRate||0,cl)+'</td></tr>';}).join('')+
+                  relCOs.map(co=>{const cl = co.attainmentRate >= 60;return'<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 10px"><span class="code-badge">'+( co.courseCode||'-')+'</span></td><td style="padding:6px 10px"><span class="badge bg-green">'+(co.coCode||'?')+'</span></td><td style="padding:6px 10px">'+(co.coTitle||'?')+'</td><td style="padding:6px 10px;text-align:center;font-weight:700;color:var(--l3)">'+(co.attained||0)+'</td><td style="padding:6px 10px;text-align:center;color:var(--text3)">'+(co.total||0)+'</td><td style="padding:6px 10px">'+attBar(co.attainmentRate||0,cl)+'</td></tr>';}).join('')+
                   '</tbody></table>';
               })()}
             </div>
@@ -1099,7 +1095,7 @@ const AdminView={
           <thead><tr><th>Course</th><th>CO</th><th>Title</th>
             <th style="text-align:center">Attained</th><th style="text-align:center">Total</th>
             <th style="min-width:160px">Rate</th></tr></thead>
-          <tbody>${coSummary.map(r=>{const lvl=r.attainmentRate>=60?'L3':'L0';return`<tr>
+          <tbody>${coSummary.map(r=>{const lvl = r.attainmentRate >= 60;return`<tr>
             <td><span class="code-badge">${r.courseCode}</span></td>
             <td><span class="badge bg-green">${r.coCode||'?'}</span></td>
             <td>${r.coTitle||'?'}</td>
@@ -1145,7 +1141,7 @@ const AdminView={
         coHtml = '<tr><td colspan="4" class="td-load text-muted">No CO attainment data yet</td></tr>';
       } else {
         (d.coAttainments||[]).forEach(r => {
-          const att = r.level==='L3';
+          const att = r.attained;
           coHtml += '<tr>' +
             '<td><span class="badge bg-green">'+r.courseOutcome.code+'</span></td>' +
             '<td>'+r.courseOutcome.title+'</td>' +
@@ -1160,7 +1156,7 @@ const AdminView={
         poHtml = '<tr><td colspan="4" class="td-load text-muted">No PO attainment data yet</td></tr>';
       } else {
         (d.poAttainments||[]).forEach(r => {
-          const att = r.level==='L3';
+          const att = r.attained;
           poHtml += '<tr>' +
             '<td><span class="badge bg-blue">'+r.programOutcome.code+'</span></td>' +
             '<td>'+r.programOutcome.title+'</td>' +
@@ -1185,7 +1181,7 @@ const AdminView={
         '<tbody>'+coHtml+'</tbody></table></div>';
       AdminView._lastStuReport = { student: stu, name, coAttainments: d.coAttainments||[], poAttainments: d.poAttainments||[] };
 
-      const attained = (d.poAttainments||[]).filter(r=>r.level==='L3').length;
+      const attained = (d.poAttainments||[]).filter(r=>r.attained).length;
       const total    = (d.poAttainments||[]).length;
       document.getElementById('modal-ft').innerHTML =
         '<span class="text-sm text-muted">PO attained: '+attained+'/'+total+'</span>' +
@@ -1200,9 +1196,9 @@ const AdminView={
     const rows=[
       ['Name', name],['ID', d.student.institutionalId||''],['',''],
       ['Type','Code','Title','Result','Score (%)'],
-      ...d.poAttainments.map(r=>['PO',r.programOutcome.code,r.programOutcome.title,r.level==='L3'?'Attained':'Not Attained',r.percentage.toFixed(1)]),
+      ...d.poAttainments.map(r=>['PO',r.programOutcome.code,r.programOutcome.title,r.attained?'Attained':'Not Attained',r.percentage.toFixed(1)]),
       ['','','','',''],
-      ...d.coAttainments.map(r=>['CO',r.courseOutcome.code,r.courseOutcome.title,r.level==='L3'?'Attained':'Not Attained',r.percentage.toFixed(1)]),
+      ...d.coAttainments.map(r=>['CO',r.courseOutcome.code,r.courseOutcome.title,r.attained?'Attained':'Not Attained',r.percentage.toFixed(1)]),
     ];
     const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
     const a=document.createElement('a');
@@ -1215,8 +1211,8 @@ const AdminView={
     const stu=d.student;
     const batch=stu.session?.name || (stu.institutionalId?'Batch 20'+stu.institutionalId.substring(0,2):'--');
     const win=window.open('','_blank');
-    const poRows=d.poAttainments.map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.programOutcome.code}</b></td><td>${r.programOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
-    const coRows=d.coAttainments.map(r=>{const att=r.level==='L3';return`<tr><td><b>${r.courseOutcome.code}</b></td><td>${r.courseOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
+    const poRows=d.poAttainments.map(r=>{const att=r.attained;return`<tr><td><b>${r.programOutcome.code}</b></td><td>${r.programOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
+    const coRows=d.coAttainments.map(r=>{const att=r.attained;return`<tr><td><b>${r.courseOutcome.code}</b></td><td>${r.courseOutcome.title}</td><td style="text-align:center;color:${att?'#16a34a':'#dc2626'};font-weight:700">${att?'Attained':'Not Attained'}</td><td style="text-align:right">${r.percentage.toFixed(1)}%</td></tr>`;}).join('');
     win.document.write(`<!DOCTYPE html><html><head><title>Attainment - ${name}</title><style>
       body{font-family:Arial,sans-serif;padding:30px;color:#222}
       h1{font-size:20px;margin-bottom:4px}h2{font-size:15px;color:#555;margin:20px 0 8px}
