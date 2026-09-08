@@ -31,11 +31,33 @@ const updateFaculty = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// These five are hard deletes now, each guarded by a dependency check.
+//
+// Soft deleting left rows behind that still held their unique code, so creating
+// a course with a previously deleted code failed on a raw database constraint,
+// and the deleted row stayed invisible with its data attached. Hard deleting
+// without a guard would be worse: it would either throw a foreign-key error the
+// user cannot act on, or need a cascade that silently destroys student marks.
+//
+// The guard is the part that makes hard delete safe. Nothing is removed while
+// anything depends on it, and the refusal names what is in the way.
 const deleteFaculty = async (req, res, next) => {
   try {
     const { id } = req.params;
-    await prisma.faculty.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
-    res.json({ status: 'success', data: { message: 'Faculty deactivated' } });
+
+    const departments = await prisma.department.findMany({
+      where: { facultyId: id },
+      select: { id: true, code: true, name: true },
+    });
+    if (departments.length) {
+      return res.status(409).json({
+        status: 'error',
+        error: `Cannot delete: ${departments.length} department(s) belong to this faculty (${departments.map((d) => d.code).join(', ')}). Move or delete them first.`,
+      });
+    }
+
+    await prisma.faculty.delete({ where: { id } });
+    res.json({ status: 'success', data: { message: 'Faculty deleted' } });
   } catch (err) { next(err); }
 };
 
@@ -78,8 +100,27 @@ const updateDepartment = async (req, res, next) => {
 const deleteDepartment = async (req, res, next) => {
   try {
     const { id } = req.params;
-    await prisma.department.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
-    res.json({ status: 'success', data: { message: 'Department deactivated' } });
+
+    const [programs, sessions, students] = await Promise.all([
+      prisma.program.findMany({ where: { departmentId: id }, select: { code: true } }),
+      prisma.session.findMany({ where: { departmentId: id }, select: { name: true } }),
+      prisma.user.count({ where: { role: 'STUDENT', session: { departmentId: id } } }),
+    ]);
+
+    const blockers = [];
+    if (programs.length) blockers.push(`${programs.length} program(s): ${programs.map((p) => p.code).join(', ')}`);
+    if (sessions.length) blockers.push(`${sessions.length} batch(es): ${sessions.map((x) => x.name).join(', ')}`);
+    if (students) blockers.push(`${students} student(s)`);
+
+    if (blockers.length) {
+      return res.status(409).json({
+        status: 'error',
+        error: `Cannot delete: ${blockers.join('; ')} still attached.`,
+      });
+    }
+
+    await prisma.department.delete({ where: { id } });
+    res.json({ status: 'success', data: { message: 'Department deleted' } });
   } catch (err) { next(err); }
 };
 
@@ -114,8 +155,22 @@ const updateProgram = async (req, res, next) => {
 const deleteProgram = async (req, res, next) => {
   try {
     const { id } = req.params;
-    await prisma.program.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
-    res.json({ status: 'success', data: { message: 'Program deactivated' } });
+
+    const [courses, outcomes] = await Promise.all([
+      prisma.course.findMany({ where: { programId: id }, select: { code: true } }),
+      prisma.programOutcome.count({ where: { programId: id } }),
+    ]);
+
+    const blockers = [];
+    if (courses.length) blockers.push(`${courses.length} course(s): ${courses.map((c) => c.code).join(', ')}`);
+    if (outcomes) blockers.push(`${outcomes} program outcome(s)`);
+
+    if (blockers.length) {
+      return res.status(409).json({ status: 'error', error: `Cannot delete: ${blockers.join('; ')} still attached.` });
+    }
+
+    await prisma.program.delete({ where: { id } });
+    res.json({ status: 'success', data: { message: 'Program deleted' } });
   } catch (err) { next(err); }
 };
 
@@ -306,8 +361,57 @@ const updateCourse = async (req, res, next) => {
 const deleteCourse = async (req, res, next) => {
   try {
     const { id } = req.params;
-    await prisma.course.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
-    res.json({ status: 'success', data: { message: 'Course deactivated' } });
+    const { force } = req.query;
+
+    const [enrolments, assessments, outcomes, marks] = await Promise.all([
+      prisma.enrolment.count({ where: { courseId: id } }),
+      prisma.assessment.count({ where: { courseId: id } }),
+      prisma.courseOutcome.count({ where: { courseId: id } }),
+      prisma.mark.count({ where: { assessment: { courseId: id } } }),
+    ]);
+
+    // Marks are the line. Everything else can be rebuilt from the syllabus; a
+    // semester of student marks cannot, and nothing in the interface would warn
+    // that deleting a course was about to take them.
+    if (marks) {
+      return res.status(409).json({
+        status: 'error',
+        error: `Cannot delete: ${marks} student mark(s) are recorded against this course. Delete the assessments first if you really mean to discard them.`,
+      });
+    }
+
+    const attached = [];
+    if (enrolments) attached.push(`${enrolments} enrolment(s)`);
+    if (assessments) attached.push(`${assessments} assessment(s)`);
+    if (outcomes) attached.push(`${outcomes} course outcome(s)`);
+
+    if (attached.length && force !== 'true') {
+      return res.status(409).json({
+        status: 'error',
+        error: `This course has ${attached.join(', ')} attached.`,
+        impact: { enrolments, assessments, outcomes, marks: 0 },
+        hint: 'No marks are recorded, so this can be deleted. Re-send with ?force=true to remove the course and everything above.',
+      });
+    }
+
+    // Clear the dependants in one transaction. Ordering matters: mappings and
+    // assessment links point at outcomes, which point at the course.
+    await prisma.$transaction([
+      prisma.coPoMapping.deleteMany({ where: { courseId: id } }),
+      prisma.assessmentCO.deleteMany({ where: { assessment: { courseId: id } } }),
+      prisma.assessment.deleteMany({ where: { courseId: id } }),
+      prisma.coAttainment.deleteMany({ where: { courseId: id } }),
+      prisma.poAttainment.deleteMany({ where: { courseId: id } }),
+      prisma.courseOutcome.deleteMany({ where: { courseId: id } }),
+      prisma.enrolment.deleteMany({ where: { courseId: id } }),
+      prisma.courseAssignment.deleteMany({ where: { courseId: id } }),
+      prisma.course.delete({ where: { id } }),
+    ]);
+
+    res.json({
+      status: 'success',
+      data: { message: `Course deleted${attached.length ? ', along with ' + attached.join(', ') : ''}` },
+    });
   } catch (err) { next(err); }
 };
 
@@ -491,10 +595,24 @@ const updateProgramOutcome = async (req, res, next) => {
 const deleteProgramOutcome = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const hasMapping = await prisma.coPoMapping.findFirst({ where: { programOutcomeId: id } });
-    if (hasMapping) return res.status(409).json({ status: 'error', error: 'PO is referenced by a mapping. Remove mappings first.' });
-    await prisma.programOutcome.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
-    res.json({ status: 'success', data: { message: 'PO deactivated' } });
+    const [mappings, attainments] = await Promise.all([
+      prisma.coPoMapping.count({ where: { programOutcomeId: id } }),
+      prisma.poAttainment.count({ where: { programOutcomeId: id } }),
+    ]);
+
+    const blockers = [];
+    if (mappings) blockers.push(`${mappings} CO-PO mapping(s)`);
+    if (attainments) blockers.push(`${attainments} attainment record(s)`);
+
+    if (blockers.length) {
+      return res.status(409).json({
+        status: 'error',
+        error: `Cannot delete: ${blockers.join(' and ')} reference this outcome. Remove the mappings first.`,
+      });
+    }
+
+    await prisma.programOutcome.delete({ where: { id } });
+    res.json({ status: 'success', data: { message: 'PO deleted' } });
   } catch (err) { next(err); }
 };
 
